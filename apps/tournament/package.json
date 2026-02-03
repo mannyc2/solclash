@@ -1,0 +1,15 @@
+{
+  "name": "@solclash/tournament",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/cli.ts",
+  "bin": {
+    "solclash-tournament": "src/cli.ts"
+  },
+  "dependencies": {
+    "@solclash/arena": "workspace:*",
+    "@solclash/data": "workspace:*",
+    "@solclash/simulator": "workspace:*"
+  }
+}

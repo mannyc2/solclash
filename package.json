@@ -1,0 +1,20 @@
+{
+  "name": "solclash",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "bun test --recursive",
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "format": "bunx prettier -w .",
+    "arena": "bun run apps/arena/src/cli.ts",
+    "tournament": "bun run apps/tournament/src/cli.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "prettier": "^3.3.3",
+    "typescript": "^5.7.0"
+  }
+}

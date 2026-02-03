@@ -1,0 +1,34 @@
+name: starter-contract
+
+on:
+  push:
+    paths:
+      - "starter/**"
+      - ".github/workflows/starter-contract.yml"
+  pull_request:
+    paths:
+      - "starter/**"
+      - ".github/workflows/starter-contract.yml"
+
+jobs:
+  starter-contract:
+    runs-on: ubuntu-latest
+    env:
+      SOLANA_VERSION: "v1.18.26"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: Install Solana toolchain
+        run: |
+          sh -c "$(curl -sSfL https://release.solana.com/${SOLANA_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Cargo test
+        working-directory: starter/program
+        run: cargo test
+      - name: Cargo build-sbf
+        working-directory: starter/program
+        run: cargo build-sbf

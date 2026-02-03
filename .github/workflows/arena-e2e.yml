@@ -1,0 +1,45 @@
+name: arena-e2e
+
+on:
+  push:
+    paths:
+      - "apps/arena/**"
+      - "apps/arena-harness/**"
+      - "packages/simulator/**"
+      - "packages/data/**"
+      - "starter/**"
+      - ".github/workflows/arena-e2e.yml"
+  pull_request:
+    paths:
+      - "apps/arena/**"
+      - "apps/arena-harness/**"
+      - "packages/simulator/**"
+      - "packages/data/**"
+      - "starter/**"
+      - ".github/workflows/arena-e2e.yml"
+
+jobs:
+  arena-e2e:
+    runs-on: ubuntu-latest
+    env:
+      SOLANA_VERSION: "v1.18.26"
+      E2E_TESTS: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: "latest"
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: Install Solana toolchain
+        run: |
+          sh -c "$(curl -sSfL https://release.solana.com/${SOLANA_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Install dependencies
+        run: bun install
+      - name: Run E2E tests
+        run: bun test apps/arena/src/__tests__/e2e.test.ts apps/arena/src/__tests__/onchain.e2e.test.ts

@@ -1,0 +1,16 @@
+[package]
+name = "solclash_policy"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+borsh = "=1.5.3"
+solana-program = "1.18.26"
+thiserror = "1.0"
+
+# Pins for SBF toolchain compatibility (rustc 1.79 / cargo 1.79 in platform-tools)
+blake3 = "=1.5.5"
+constant_time_eq = "=0.3.1"
