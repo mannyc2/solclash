@@ -14,7 +14,10 @@ export function validateBars(
   const errors: ValidationError[] = [];
 
   for (let i = 0; i < bars.length; i++) {
-    const bar = bars[i]!;
+    const bar = bars[i];
+    if (!bar) {
+      continue;
+    }
 
     // Positive prices
     for (const field of ["open", "high", "low", "close"] as const) {
@@ -25,7 +28,11 @@ export function validateBars(
 
     // Volume non-negative
     if (bar.volume < 0) {
-      errors.push({ index: i, field: "volume", message: "volume must be >= 0" });
+      errors.push({
+        index: i,
+        field: "volume",
+        message: "volume must be >= 0",
+      });
     }
 
     // low <= open/close <= high
@@ -39,12 +46,19 @@ export function validateBars(
       errors.push({ index: i, field: "high", message: "high must be >= open" });
     }
     if (bar.high < bar.close) {
-      errors.push({ index: i, field: "high", message: "high must be >= close" });
+      errors.push({
+        index: i,
+        field: "high",
+        message: "high must be >= close",
+      });
     }
 
     // Contiguity check
     if (i > 0) {
-      const prev = bars[i - 1]!;
+      const prev = bars[i - 1];
+      if (!prev) {
+        continue;
+      }
       const expectedStart = prev.bar_start_ts_ms + barIntervalMs;
       if (bar.bar_start_ts_ms !== expectedStart) {
         errors.push({
@@ -82,11 +96,13 @@ export function getWindowInvalidReason(
 ): string | null {
   if (errors.length === 0) return null;
   const inWindow = errors.filter(
-    (e) =>
-      e.index >= windowDef.start_index && e.index <= windowDef.end_index,
+    (e) => e.index >= windowDef.start_index && e.index <= windowDef.end_index,
   );
   if (inWindow.length === 0) return null;
   // Keep the reason compact while still indicating multiple failures.
-  const first = inWindow[0]!;
+  const first = inWindow[0];
+  if (!first) {
+    return null;
+  }
   return `bar_validation_failed: index=${first.index} field=${first.field} message=${first.message} (count=${inWindow.length})`;
 }

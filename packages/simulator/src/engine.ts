@@ -31,6 +31,84 @@ interface StepAction {
   status: "OK" | "ERR";
 }
 
+function getRecordValue<T>(
+  record: Record<string, T>,
+  key: string,
+  context: string,
+): T {
+  const value = record[key];
+  if (value === undefined) {
+    throw new Error(`${context}: missing key "${key}"`);
+  }
+  return value;
+}
+
+function getBarAt(bars: OhlcvBar[], index: number, context: string): OhlcvBar {
+  const bar = bars[index];
+  if (!bar) {
+    throw new Error(`${context}: missing bar at index ${index}`);
+  }
+  return bar;
+}
+
+function normalizePolicyOutput(raw: unknown): EvalOutputV1 | null {
+  if (!isRecord(raw)) {
+    return null;
+  }
+
+  const version = toFiniteNumber(raw.version);
+  const actionType = toFiniteNumber(raw.action_type);
+  const orderQty = toFiniteNumber(raw.order_qty);
+  const errCode = toFiniteNumber(raw.err_code);
+
+  if (version !== 1) {
+    return null;
+  }
+  if (actionType === null || !isActionType(actionType)) {
+    return null;
+  }
+  if (orderQty === null) {
+    return null;
+  }
+  if (
+    (actionType === ActionType.BUY || actionType === ActionType.SELL) &&
+    orderQty <= 0
+  ) {
+    return null;
+  }
+
+  return {
+    version: 1,
+    action_type: actionType,
+    order_qty: orderQty,
+    err_code: errCode ?? 0,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
+}
+
+function isActionType(value: number): value is ActionType {
+  return (
+    value === ActionType.HOLD ||
+    value === ActionType.BUY ||
+    value === ActionType.SELL ||
+    value === ActionType.CLOSE
+  );
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
 export async function runWindow(
   config: ArenaConfig,
   bars: OhlcvBar[],
@@ -80,14 +158,14 @@ export async function runWindow(
   }
 
   for (let t = 0; t < bars.length; t++) {
-    const bar = bars[t]!;
+    const bar = getBarAt(bars, t, "runWindow");
     const lookbackStart = Math.max(0, t - config.lookback_len + 1);
     const lookbackBars = bars.slice(lookbackStart, t + 1);
 
     const stepActions: Record<string, StepAction> = {};
 
     for (const agent of agents) {
-      const state = agentState[agent.id]!;
+      const state = getRecordValue(agentState, agent.id, "agent state");
 
       // 1. Apply funding
       state.account = applyFunding(
@@ -120,35 +198,18 @@ export async function runWindow(
       let output: EvalOutputV1;
       let status: "OK" | "ERR" = "OK";
       try {
-        output = await agent.policy(input);
+        const rawOutput: unknown = await agent.policy(input);
+        const normalized = normalizePolicyOutput(rawOutput);
+        if (!normalized) {
+          status = "ERR";
+          output = holdOutput(6);
+        } else {
+          output = normalized;
+        }
       } catch (_err) {
         // Treat policy failures as HOLD so a single agent can't abort the round.
         status = "ERR";
         output = holdOutput(5);
-      }
-
-      // Validate output
-      if (output.version !== 1) {
-        // Coerce invalid outputs to HOLD to keep runs deterministic and safe.
-        status = "ERR";
-        output = holdOutput(6);
-      }
-      if (
-        output.action_type !== ActionType.HOLD &&
-        output.action_type !== ActionType.BUY &&
-        output.action_type !== ActionType.SELL &&
-        output.action_type !== ActionType.CLOSE
-      ) {
-        status = "ERR";
-        output = holdOutput(6);
-      }
-      if (
-        (output.action_type === ActionType.BUY ||
-          output.action_type === ActionType.SELL) &&
-        output.order_qty <= 0
-      ) {
-        status = "ERR";
-        output = holdOutput(6);
       }
 
       // 3. Convert action to delta_qty
@@ -208,7 +269,7 @@ export async function runWindow(
 
     // 6. Execute at next bar open (if not last bar)
     if (t < bars.length - 1) {
-      const nextBar = bars[t + 1]!;
+      const nextBar = getBarAt(bars, t + 1, "execution");
       // Uniform execution uses net flow to apply transient impact without mutating the tape.
       const netQty = Object.values(stepActions).reduce(
         (sum, a) => sum + a.delta_qty,
@@ -222,11 +283,11 @@ export async function runWindow(
       );
 
       for (const agent of agents) {
-        const action = stepActions[agent.id]!;
+        const action = getRecordValue(stepActions, agent.id, "step action");
         if (action.delta_qty === 0) {
           continue;
         }
-        const state = agentState[agent.id]!;
+        const state = getRecordValue(agentState, agent.id, "agent state");
 
         if (action.is_liquidation) {
           const liqResult = liquidateAtPrice(
@@ -299,8 +360,8 @@ export async function runWindow(
     }
 
     for (const agent of agents) {
-      const action = stepActions[agent.id]!;
-      const state = agentState[agent.id]!;
+      const action = getRecordValue(stepActions, agent.id, "step action");
+      const state = getRecordValue(agentState, agent.id, "agent state");
       state.policyLog.push({
         window_id: windowId,
         step_index: t,
@@ -315,7 +376,7 @@ export async function runWindow(
 
   const agentResults: Record<string, WindowAgentResult> = {};
   for (const agent of agents) {
-    const state = agentState[agent.id]!;
+    const state = getRecordValue(agentState, agent.id, "agent state");
     const metrics = computeWindowMetrics(
       windowId,
       state.equityCurve,

@@ -27,6 +27,13 @@ function makeFixtureBars(n: number): OhlcvBar[] {
   });
 }
 
+function requireValue<T>(value: T | null | undefined, label: string): T {
+  if (value === null || value === undefined) {
+    throw new Error(`Missing ${label}`);
+  }
+  return value;
+}
+
 const config: ArenaConfigResolved = {
   arena_id: "onchain-e2e-test",
   symbol: "BTC-PERP",
@@ -110,10 +117,20 @@ describe("arena on-chain e2e", () => {
         const result = await executeRound(config, bars, agents, tmpDir);
 
         expect(result.round_metrics["starter"]).toBeDefined();
-        expect(result.round_metrics["starter"]!.pnl_total).toBe(0);
-        expect(await Bun.file(join(tmpDir, "summary.json")).exists()).toBe(true);
-        expect(await Bun.file(join(tmpDir, "round_results.json")).exists()).toBe(true);
-        expect(await Bun.file(join(tmpDir, "starter", "policy_log.jsonl")).exists()).toBe(true);
+        const starterMetrics = requireValue(
+          result.round_metrics["starter"],
+          "starter metrics",
+        );
+        expect(starterMetrics.pnl_total).toBe(0);
+        expect(await Bun.file(join(tmpDir, "summary.json")).exists()).toBe(
+          true,
+        );
+        expect(
+          await Bun.file(join(tmpDir, "round_results.json")).exists(),
+        ).toBe(true);
+        expect(
+          await Bun.file(join(tmpDir, "starter", "policy_log.jsonl")).exists(),
+        ).toBe(true);
       } finally {
         if (harness) {
           await harness.shutdown();

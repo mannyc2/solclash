@@ -27,6 +27,18 @@ export interface RunResult {
   summaries: WindowSummary[];
 }
 
+function getOrThrow<T>(
+  record: Record<string, T>,
+  key: string,
+  context: string,
+): T {
+  const value = record[key];
+  if (value === undefined) {
+    throw new Error(`${context}: missing key "${key}"`);
+  }
+  return value;
+}
+
 export async function executeRound(
   config: ArenaConfigResolved,
   bars: OhlcvBar[],
@@ -130,8 +142,17 @@ export async function executeRound(
       // Summary entries are per window, aggregating all agents into one record.
       const metricsByAgent: Record<string, WindowMetrics> = {};
       for (const agent of agents) {
-        const agentResult = result.agent_results[agent.id]!;
-        agentWindowMetrics[agent.id]!.push(agentResult.metrics);
+        const agentResult = getOrThrow(
+          result.agent_results,
+          agent.id,
+          "runWindow result",
+        );
+        const metrics = getOrThrow(
+          agentWindowMetrics,
+          agent.id,
+          "agent window metrics",
+        );
+        metrics.push(agentResult.metrics);
         await writeWindowLogs(outputDir, agent.id, agentResult);
         metricsByAgent[agent.id] = agentResult.metrics;
       }
@@ -148,10 +169,12 @@ export async function executeRound(
   // Build round metrics per agent
   const roundMetrics: Record<string, RoundMetrics> = {};
   for (const agent of agents) {
-    roundMetrics[agent.id] = aggregateRound(
-      agentWindowMetrics[agent.id]!,
-      config.scoring_weights,
+    const metrics = getOrThrow(
+      agentWindowMetrics,
+      agent.id,
+      "aggregateRound input",
     );
+    roundMetrics[agent.id] = aggregateRound(metrics, config.scoring_weights);
   }
 
   await writeSummary(outputDir, summaries);

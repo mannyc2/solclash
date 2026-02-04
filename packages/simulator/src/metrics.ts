@@ -26,8 +26,25 @@ export function computeWindowMetrics(
     };
   }
 
-  const equityStart = equityCurve[0]!.equity;
-  const equityEnd = equityCurve[equityCurve.length - 1]!.equity;
+  const firstPoint = equityCurve[0];
+  const lastPoint = equityCurve.at(-1);
+  if (!firstPoint || !lastPoint) {
+    return {
+      window_id: windowId,
+      pnl: 0,
+      drawdown: 0,
+      exposure: 0,
+      total_fees: 0,
+      liquidation_count: 0,
+      equity_start: 0,
+      equity_end: 0,
+      peak_equity: 0,
+      trough_equity: 0,
+    };
+  }
+
+  const equityStart = firstPoint.equity;
+  const equityEnd = lastPoint.equity;
   const pnl = equityEnd - equityStart;
 
   let peak = equityStart;

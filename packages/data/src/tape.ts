@@ -2,8 +2,6 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { OhlcvBar, TapeSource } from "@solclash/simulator";
 import {
-  loadBarsFromJson,
-  loadBarsFromJsonl,
   loadTapeFromJson,
   loadTapeFromJsonl,
   type TapeWithMeta,
@@ -58,12 +56,6 @@ export async function loadTapeWithMeta(
   return { bars: generateSyntheticTape(tapeSource, opts) };
 }
 
-async function loadFromPath(filePath: string): Promise<OhlcvBar[]> {
-  return filePath.endsWith(".jsonl")
-    ? loadBarsFromJsonl(filePath)
-    : loadBarsFromJson(filePath);
-}
-
 async function loadFromPathWithMeta(filePath: string): Promise<TapeWithMeta> {
   return filePath.endsWith(".jsonl")
     ? loadTapeFromJsonl(filePath)
@@ -78,7 +70,7 @@ function generateSyntheticTape(
     throw new Error(`Unsupported generator_id: ${tapeSource.generator_id}`);
   }
 
-  const params = tapeSource.params ?? {};
+  const params = tapeSource.params;
   const totalBars = toNumber(params.total_bars);
   if (!Number.isFinite(totalBars) || totalBars <= 0) {
     throw new Error("synthetic tape requires params.total_bars > 0");
@@ -107,8 +99,7 @@ function generateSyntheticTape(
     const open = price;
     const shock = randn();
     const close = Math.max(1, open * (1 + drift + vol * shock));
-    const high =
-      Math.max(open, close) * (1 + Math.abs(randn()) * 0.001);
+    const high = Math.max(open, close) * (1 + Math.abs(randn()) * 0.001);
     const low = Math.max(
       1,
       Math.min(open, close) * (1 - Math.abs(randn()) * 0.001),

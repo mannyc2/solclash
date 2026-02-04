@@ -1,9 +1,14 @@
 import { $ } from "bun";
 import { describe, test, expect, afterAll } from "bun:test";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ArenaConfigResolved, OhlcvBar } from "@solclash/simulator";
 import { getBuiltinAgent, type Agent } from "@solclash/arena";
-import { runTournament } from "../runner.js";
+import { runTournament, type AgentSource } from "../runner.js";
+import { HostRuntime } from "../runtime/host.js";
+import { buildEditConfig } from "../edit/config.js";
+import { resolveEditPrompt } from "../edit/prompt.js";
+import { runEditPhase } from "../edit/runner.js";
 
 function makeFixtureBars(n: number): OhlcvBar[] {
   const basePrice = 50000;
@@ -20,6 +25,13 @@ function makeFixtureBars(n: number): OhlcvBar[] {
       volume: 100,
     };
   });
+}
+
+function requireValue<T>(value: T | null | undefined, label: string): T {
+  if (value === null || value === undefined) {
+    throw new Error(`Missing ${label}`);
+  }
+  return value;
 }
 
 const config: ArenaConfigResolved = {
@@ -59,6 +71,9 @@ const config: ArenaConfigResolved = {
 
 describe("tournament e2e", () => {
   const tmpDirs: string[] = [];
+  const fakeRunnerPath = fileURLToPath(
+    new URL("./fixtures/fake-edit-runner.mjs", import.meta.url),
+  );
 
   async function makeTmpDir(): Promise<string> {
     const dir = (await $`mktemp -d`.text()).trim();
@@ -80,8 +95,8 @@ describe("tournament e2e", () => {
 
     const agents: Agent[] = [
       { id: "MOMENTUM", policy: momentumPolicy },
-      getBuiltinAgent("BUY_AND_HOLD")!,
-      getBuiltinAgent("FLAT")!,
+      requireValue(getBuiltinAgent("BUY_AND_HOLD"), "BUY_AND_HOLD agent"),
+      requireValue(getBuiltinAgent("FLAT"), "FLAT agent"),
     ];
 
     const tmpDir = await makeTmpDir();
@@ -99,8 +114,10 @@ describe("tournament e2e", () => {
 
     // Assert tournament structure
     expect(result.rounds).toHaveLength(2);
-    expect(result.rounds[0]!.meta).not.toBeNull();
-    expect(result.rounds[1]!.meta).not.toBeNull();
+    const round1 = requireValue(result.rounds[0], "round 1");
+    const round2 = requireValue(result.rounds[1], "round 2");
+    expect(round1.meta).not.toBeNull();
+    expect(round2.meta).not.toBeNull();
 
     // Assert round logs exist
     expect(await Bun.file(join(tmpDir, "rounds/1/summary.json")).exists()).toBe(
@@ -122,12 +139,12 @@ describe("tournament e2e", () => {
     }
 
     // Assert scores differ across agents
-    const r1 = result.rounds[0]!.meta!;
-    expect(r1.scores["MOMENTUM"]).not.toBe(r1.scores["FLAT"]);
+    const r1 = requireValue(round1.meta, "round 1 meta");
+    expect(r1.scores["BUY_AND_HOLD"]).not.toBe(r1.scores["FLAT"]);
     expect(r1.winner).toBeDefined();
 
     // Assert determinism: both rounds produce identical scores (same config + bars)
-    const r2 = result.rounds[1]!.meta!;
+    const r2 = requireValue(round2.meta, "round 2 meta");
     expect(r2.scores["MOMENTUM"]).toBe(r1.scores["MOMENTUM"]);
     expect(r2.scores["BUY_AND_HOLD"]).toBe(r1.scores["BUY_AND_HOLD"]);
     expect(r2.scores["FLAT"]).toBe(r1.scores["FLAT"]);
@@ -139,10 +156,11 @@ describe("tournament e2e", () => {
     expect(tournamentJson.rounds).toHaveLength(2);
     for (let i = 0; i < 2; i++) {
       const diskRound = tournamentJson.rounds[i];
-      const memRound = result.rounds[i]!;
+      const memRound = requireValue(result.rounds[i], `round ${i + 1}`);
       expect(diskRound.round_num).toBe(memRound.round_num);
-      expect(diskRound.meta.winner).toBe(memRound.meta!.winner);
-      expect(diskRound.meta.scores).toEqual(memRound.meta!.scores);
+      const memMeta = requireValue(memRound.meta, `round ${i + 1} meta`);
+      expect(diskRound.meta.winner).toBe(memMeta.winner);
+      expect(diskRound.meta.scores).toEqual(memMeta.scores);
     }
 
     // ── round_meta.json exists and matches per round ──
@@ -151,7 +169,8 @@ describe("tournament e2e", () => {
       const metaFile = Bun.file(join(roundDir, "round_meta.json"));
       expect(await metaFile.exists()).toBe(true);
       const diskMeta = await metaFile.json();
-      const memMeta = result.rounds[round - 1]!.meta!;
+      const memRound = requireValue(result.rounds[round - 1], `round ${round}`);
+      const memMeta = requireValue(memRound.meta, `round ${round} meta`);
       expect(diskMeta.winner).toBe(memMeta.winner);
       expect(diskMeta.scores).toEqual(memMeta.scores);
       expect(diskMeta.round_start_ts).toBe(memMeta.round_start_ts);
@@ -179,8 +198,9 @@ describe("tournament e2e", () => {
       const maxScore = Math.max(...Object.values(meta.scores));
       const expectedWinner = Object.entries(meta.scores).find(
         ([, s]) => s === maxScore,
-      )![0];
-      expect(meta.winner).toBe(expectedWinner);
+      );
+      const expectedWinnerId = requireValue(expectedWinner, "winner entry")[0];
+      expect(meta.winner).toBe(expectedWinnerId);
     }
 
     // ── Injected content matches source ──
@@ -205,7 +225,7 @@ describe("tournament e2e", () => {
 
     const agents: Agent[] = [
       { id: "MOMENTUM", policy: momentumPolicy },
-      getBuiltinAgent("BUY_AND_HOLD")!,
+      requireValue(getBuiltinAgent("BUY_AND_HOLD"), "BUY_AND_HOLD agent"),
     ];
 
     const tmpDir = await makeTmpDir();
@@ -220,8 +240,10 @@ describe("tournament e2e", () => {
 
     // Round completes successfully
     expect(result.rounds).toHaveLength(1);
-    expect(result.rounds[0]!.meta).not.toBeNull();
-    expect(result.rounds[0]!.meta!.winner).toBeDefined();
+    const firstRound = requireValue(result.rounds[0], "round 1");
+    const firstMeta = requireValue(firstRound.meta, "round 1 meta");
+    expect(firstMeta).not.toBeNull();
+    expect(firstMeta.winner).toBeDefined();
 
     // tournament.json written
     expect(await Bun.file(join(tmpDir, "tournament.json")).exists()).toBe(true);
@@ -232,5 +254,109 @@ describe("tournament e2e", () => {
       await $`test -d ${logsDir} && echo yes || echo no`.text()
     ).trim();
     expect(logsDirExists).toBe("no");
+  });
+
+  test("edit phase isolates agent workspaces and applies edits", async () => {
+    const runtime = new HostRuntime();
+    const logsRoot = await makeTmpDir();
+    const workspaceA = await makeTmpDir();
+    const workspaceB = await makeTmpDir();
+
+    await Bun.write(join(workspaceA, "agent.js"), "export default () => {}");
+    await Bun.write(join(workspaceB, "agent.js"), "export default () => {}");
+
+    const editConfig = buildEditConfig({
+      enabled: true,
+      prompt_ref: "default",
+      runner_path: fakeRunnerPath,
+      image: "host",
+      concurrency: 2,
+    });
+
+    const results = await runEditPhase({
+      round: 1,
+      agents: [
+        {
+          id: "AGENT_A",
+          provider: "anthropic",
+          workspace: workspaceA,
+          entrypoint: "agent.js",
+        },
+        {
+          id: "AGENT_B",
+          provider: "anthropic",
+          workspace: workspaceB,
+          entrypoint: "agent.js",
+        },
+      ],
+      config: editConfig,
+      prompt_ref: "default",
+      runtime,
+      logsRoot,
+    });
+
+    expect(results["AGENT_A"]?.status).toBe("success");
+    expect(results["AGENT_B"]?.status).toBe("success");
+
+    const markerA = (
+      await Bun.file(join(workspaceA, "edit_marker.txt")).text()
+    ).trim();
+    const markerB = (
+      await Bun.file(join(workspaceB, "edit_marker.txt")).text()
+    ).trim();
+    expect(markerA).toBe("edited:AGENT_A");
+    expect(markerB).toBe("edited:AGENT_B");
+
+    const promptA = resolveEditPrompt("default", 1, "AGENT_A");
+    const promptB = resolveEditPrompt("default", 1, "AGENT_B");
+    const metaA = await Bun.file(
+      join(logsRoot, "edits/1/AGENT_A/edit_meta.json"),
+    ).json();
+    const metaB = await Bun.file(
+      join(logsRoot, "edits/1/AGENT_B/edit_meta.json"),
+    ).json();
+    expect(metaA.prompt_sha256).toBe(promptA.sha256);
+    expect(metaB.prompt_sha256).toBe(promptB.sha256);
+  });
+
+  test("log injection occurs before the next edit phase", async () => {
+    const runtime = new HostRuntime();
+    const workspace = await makeTmpDir();
+    await Bun.write(join(workspace, "agent.js"), "export default () => {}");
+
+    const editConfig = buildEditConfig({
+      enabled: true,
+      prompt_ref: "default",
+      runner_path: fakeRunnerPath,
+      image: "host",
+      concurrency: 1,
+    });
+
+    const agents: Agent[] = [
+      requireValue(getBuiltinAgent("FLAT"), "FLAT agent"),
+    ];
+    const agentSources: AgentSource[] = [
+      { id: "DUMMY", provider: "anthropic", workspace, entrypoint: "agent.js" },
+    ];
+
+    const outputDir = await makeTmpDir();
+
+    await runTournament({
+      config,
+      bars: makeFixtureBars(20),
+      agents,
+      agentSources,
+      rounds: 2,
+      outputDir,
+      injectTargets: [workspace],
+      edit: editConfig,
+      runtime,
+      competitionMode: "local",
+    });
+
+    const seen = (
+      await Bun.file(join(workspace, "log_seen.txt")).text()
+    ).trim();
+    expect(seen).toBe("seen:true");
   });
 });

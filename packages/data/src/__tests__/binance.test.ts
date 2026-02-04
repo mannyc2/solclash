@@ -5,6 +5,13 @@ function mockFetch(impl: (...args: unknown[]) => Promise<Response>) {
   globalThis.fetch = mock(impl) as unknown as typeof fetch;
 }
 
+function requireValue<T>(value: T | null | undefined, label: string): T {
+  if (value === null || value === undefined) {
+    throw new Error(`Missing ${label}`);
+  }
+  return value;
+}
+
 // --- Unit tests with mocked fetch ---
 
 describe("fetchKlines (mocked)", () => {
@@ -35,7 +42,7 @@ describe("fetchKlines (mocked)", () => {
     const bars = await fetchKlines({ symbol: "BTCUSDT", interval: "1m" });
 
     expect(bars).toHaveLength(1);
-    const bar = bars[0]!;
+    const bar = requireValue(bars[0], "first bar");
     expect(bar.symbol).toBe("BTCUSDT");
     expect(bar.bar_start_ts_ms).toBe(1499040000000);
     expect(bar.bar_end_ts_ms).toBe(1499040059999);
@@ -97,9 +104,7 @@ describe("fetchAllKlines (mocked)", () => {
         [2000, "100", "101", "99", "100", "10", 2999, "0", 0, "0", "0", "0"],
       ],
       // Page 2: 1 bar
-      [
-        [3000, "100", "101", "99", "100", "10", 3999, "0", 0, "0", "0", "0"],
-      ],
+      [[3000, "100", "101", "99", "100", "10", 3999, "0", 0, "0", "0", "0"]],
       // Page 3: empty → stop
       [],
     ];
@@ -119,30 +124,35 @@ describe("fetchAllKlines (mocked)", () => {
 
     expect(bars).toHaveLength(3);
     expect(callCount).toBe(3);
-    expect(bars[0]!.bar_start_ts_ms).toBe(1000);
-    expect(bars[2]!.bar_start_ts_ms).toBe(3000);
+    const firstBar = requireValue(bars[0], "first paginated bar");
+    const thirdBar = requireValue(bars[2], "third paginated bar");
+    expect(firstBar.bar_start_ts_ms).toBe(1000);
+    expect(thirdBar.bar_start_ts_ms).toBe(3000);
   });
 });
 
 // --- Live integration test (run with: bun test -t "live") ---
 
 describe("fetchKlines (live)", () => {
-  test.skipIf(!process.env["LIVE_TEST"])("fetches real BTCUSDT 1m klines from Binance", async () => {
-    const bars = await fetchKlines({
-      symbol: "BTCUSDT",
-      interval: "1m",
-      limit: 5,
-    });
+  test.skipIf(!process.env["LIVE_TEST"])(
+    "fetches real BTCUSDT 1m klines from Binance",
+    async () => {
+      const bars = await fetchKlines({
+        symbol: "BTCUSDT",
+        interval: "1m",
+        limit: 5,
+      });
 
-    expect(bars.length).toBeGreaterThan(0);
-    expect(bars.length).toBeLessThanOrEqual(5);
+      expect(bars.length).toBeGreaterThan(0);
+      expect(bars.length).toBeLessThanOrEqual(5);
 
-    const bar = bars[0]!;
-    expect(bar.symbol).toBe("BTCUSDT");
-    expect(bar.open).toBeGreaterThan(0);
-    expect(bar.high).toBeGreaterThanOrEqual(bar.low);
-    expect(bar.volume).toBeGreaterThanOrEqual(0);
-    expect(bar.bar_start_ts_ms).toBeGreaterThan(0);
-    expect(bar.bar_end_ts_ms).toBeGreaterThan(bar.bar_start_ts_ms);
-  });
+      const bar = requireValue(bars[0], "first live bar");
+      expect(bar.symbol).toBe("BTCUSDT");
+      expect(bar.open).toBeGreaterThan(0);
+      expect(bar.high).toBeGreaterThanOrEqual(bar.low);
+      expect(bar.volume).toBeGreaterThanOrEqual(0);
+      expect(bar.bar_start_ts_ms).toBeGreaterThan(0);
+      expect(bar.bar_end_ts_ms).toBeGreaterThan(bar.bar_start_ts_ms);
+    },
+  );
 });

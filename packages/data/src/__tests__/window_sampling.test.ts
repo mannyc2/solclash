@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { buildWindows } from "../windowing.js";
 import { selectWindows } from "../window_sampling.js";
 import type { OhlcvBar, WindowSamplingConfig } from "@solclash/simulator";
@@ -30,9 +30,21 @@ test("selectWindows sequential picks first N", () => {
 
 test("selectWindows stratified includes stress window", () => {
   const bars = makeBars([
-    100, 120, 80, 110, 90, // volatile window
-    100, 101, 102, 103, 104,
-    100, 101, 102, 103, 104,
+    100,
+    120,
+    80,
+    110,
+    90, // volatile window
+    100,
+    101,
+    102,
+    103,
+    104,
+    100,
+    101,
+    102,
+    103,
+    104,
   ]);
   const windows = buildWindows(bars, 5, 0);
   const sampling: WindowSamplingConfig = {

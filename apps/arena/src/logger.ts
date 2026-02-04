@@ -21,7 +21,7 @@ function getSink(path: string): FileSink {
 function appendJsonl(path: string, entries: unknown[]): void {
   if (entries.length === 0) return;
   const sink = getSink(path);
-  sink.write(toJsonl(entries));
+  void sink.write(toJsonl(entries));
 }
 
 export async function closeLogSinks(): Promise<void> {

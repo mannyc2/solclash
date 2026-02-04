@@ -169,7 +169,7 @@ export class HarnessClient {
       throw new Error(response.message);
     }
     this.closed = true;
-    this.stdin.end();
+    void this.stdin.end();
     this.proc.kill();
   }
 
@@ -182,7 +182,7 @@ export class HarnessClient {
       throw new Error("Harness is closed");
     }
     const json = JSON.stringify(msg);
-    this.stdin.write(this.encoder.encode(`${json}\n`));
+    void this.stdin.write(this.encoder.encode(`${json}\n`));
     await this.stdin.flush();
     return new Promise((resolve, reject) => {
       this.pending.set(msg.request_id, { resolve, reject });
@@ -190,9 +190,13 @@ export class HarnessClient {
   }
 
   private async readLoop(): Promise<void> {
-    const reader = this.proc.stdout.getReader();
+    const stdout = this.proc.stdout;
+    if (!stdout || typeof stdout === "number") {
+      return;
+    }
+    const reader = stdout.getReader();
     let buffer = "";
-    while (true) {
+    for (;;) {
       const { value, done } = await reader.read();
       if (done) {
         break;
@@ -227,8 +231,8 @@ export class HarnessClient {
 }
 
 function serializeEvalInput(input: EvalInputV1): HarnessEvalInput {
-  const priceScale = input.instrument?.price_scale ?? 1_000_000;
-  const volumeScale = input.instrument?.volume_scale ?? 1_000_000;
+  const priceScale = input.instrument.price_scale;
+  const volumeScale = input.instrument.volume_scale;
 
   return {
     version: input.version,

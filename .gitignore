@@ -1,7 +1,14 @@
 .claude
+.codex
 node_modules
 dist
 *.tsbuildinfo
 .DS_Store
 **/target/
 output/
+.env
+.env.*
+logs/
+**/logs/
+tmp/
+**/tmp/

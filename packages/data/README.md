@@ -19,11 +19,19 @@ Loads bars using the configured tape source.
 - Historical: uses `dataset_id` or `path`
 - Synthetic: uses a deterministic generator (`gbm_v1`)
 
+For `dataset_id`, the loader resolves relative to `<baseDir>/data/` and prefers
+`.jsonl` when available (fallback to `.json`).
+
 ```ts
 import { loadTape } from "@solclash/data";
 
 const bars = await loadTape(
-  { type: "synthetic", generator_id: "gbm_v1", seed: 42, params: { total_bars: 1000 } },
+  {
+    type: "synthetic",
+    generator_id: "gbm_v1",
+    seed: 42,
+    params: { total_bars: 1000 },
+  },
   { barIntervalSeconds: 60, symbol: "BTC-PERP" },
 );
 ```
@@ -73,6 +81,28 @@ import { buildWindows, sliceBars } from "@solclash/data";
 
 const windows = buildWindows(bars, 720, 0);
 const firstWindowBars = sliceBars(bars, windows[0]);
+```
+
+## Window Sampling
+
+### `selectWindows(windows, bars, sampling, total) -> WindowDef[]`
+
+Selects a subset of windows using one of two modes configured via `WindowSamplingConfig`:
+
+- **Sequential** — returns the first `total` windows in order.
+- **Stratified** — picks high-stress windows first (by volatility), then round-robins across volatility/trend/volume buckets for balanced market-condition coverage. Uses FNV-1a hashing with an optional `seed` for deterministic results.
+
+### `computeWindowStats(bars, windowDef) -> WindowStats`
+
+Computes summary statistics for a single window:
+
+```ts
+interface WindowStats {
+  window_id: string;
+  volatility: number; // std dev of close-to-close returns
+  trend: number; // % change from first to last close
+  volume: number; // mean volume across bars
+}
 ```
 
 ## Binance Fetcher

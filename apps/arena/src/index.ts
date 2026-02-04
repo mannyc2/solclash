@@ -13,3 +13,4 @@ export {
   writeWindowLogs,
   type RoundMeta,
 } from "./logger.js";
+export { resolveOnchainWorkspace, type OnchainWorkspace } from "./workspace.js";

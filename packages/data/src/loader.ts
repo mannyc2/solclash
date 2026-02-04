@@ -16,7 +16,9 @@ export async function loadBarsFromJsonl(filePath: string): Promise<OhlcvBar[]> {
   return tape.bars;
 }
 
-export async function loadTapeFromJson(filePath: string): Promise<TapeWithMeta> {
+export async function loadTapeFromJson(
+  filePath: string,
+): Promise<TapeWithMeta> {
   const data: unknown = await Bun.file(filePath).json();
   // Support both legacy arrays and the newer { instrument, bars } format.
   return parseJsonTapeData(data, filePath);
@@ -35,16 +37,19 @@ export async function loadTapeFromJsonl(
     return { bars: [] };
   }
 
-  const first = JSON.parse(lines[0]!) as any;
-  if (first && typeof first === "object" && "instrument" in first) {
+  const firstLine = lines[0];
+  if (!firstLine) {
+    return { bars: [] };
+  }
+
+  const first = JSON.parse(firstLine) as unknown;
+  if (isRecord(first) && "instrument" in first) {
     if (Array.isArray(first.bars)) {
       return parseJsonTapeData(first, filePath);
     }
     // JSONL can start with a metadata header, keeping bar lines unchanged.
     const instrument = first.instrument as InstrumentMeta;
-    const bars = lines
-      .slice(1)
-      .map((line) => JSON.parse(line) as OhlcvBar);
+    const bars = lines.slice(1).map((line) => JSON.parse(line) as OhlcvBar);
     return { instrument, bars };
   }
 
@@ -57,12 +62,18 @@ function parseJsonTapeData(data: unknown, filePath: string): TapeWithMeta {
     return { bars: data as OhlcvBar[] };
   }
 
-  if (data && typeof data === "object") {
+  if (isRecord(data)) {
     const obj = data as { instrument?: InstrumentMeta; bars?: OhlcvBar[] };
     if (Array.isArray(obj.bars)) {
       return { instrument: obj.instrument, bars: obj.bars };
     }
   }
 
-  throw new Error(`Expected array of bars or {instrument, bars} in ${filePath}`);
+  throw new Error(
+    `Expected array of bars or {instrument, bars} in ${filePath}`,
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
 }

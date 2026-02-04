@@ -9,7 +9,7 @@ bun run apps/arena/src/cli.ts \
   --config arena-config.json \
   --data bars.json \
   --output ./output \
-  --agents ./my-agent.ts
+  --agent ./starter
 ```
 
 Or via the root script:
@@ -20,16 +20,22 @@ bun run arena -- --config arena-config.json --data bars.json
 
 ### Options
 
-| Flag | Short | Required | Description |
-|------|-------|----------|-------------|
-| `--config` | `-c` | Yes | Path to arena config JSON (validated with Zod) |
-| `--data` | `-d` | No | Path to bar data (`.json` array or `.jsonl`). Optional if `tape_source` is set in config. |
-| `--output` | `-o` | No | Output directory (default: `./output`) |
-| `--agents` | `-a` | No | Paths to custom agent modules (repeatable) |
-| `--onchain-agents` |  | No | Directories containing on-chain agent programs (repeatable) |
-| `--harness` |  | No | Path to the harness binary (default: `apps/arena-harness/target/release/solclash-harness`) |
+| Flag        | Short | Required | Description                                                                                |
+| ----------- | ----- | -------- | ------------------------------------------------------------------------------------------ |
+| `--config`  | `-c`  | Yes      | Path to arena config JSON (validated with Zod)                                             |
+| `--data`    | `-d`  | No       | Path to bar data (`.json` array or `.jsonl`). Optional if `tape_source` is set in config.  |
+| `--output`  | `-o`  | No       | Output directory (default: `./output`)                                                     |
+| `--agent`   | `-a`  | No       | Paths to custom Rust workspaces (repeatable)                                               |
+| `--agents`  |       | No       | Alias for `--agent` (repeatable)                                                           |
+| `--harness` |       | No       | Path to the harness binary (default: `apps/arena-harness/target/release/solclash-harness`) |
 
 Baseline agents listed in `config.baseline_bots_enabled` are loaded automatically.
+
+This CLI is also invoked inside the tournament arena container (`solclash-arena`).
+
+### Scoring Weights
+
+The `scoring_weights_reference` config field supports bare preset IDs (e.g. `"v1"`) which resolve to `docs/scoring-weights/v1.json`, as well as explicit paths. If `scoring_weights` is provided inline, the reference is ignored.
 
 ## Output
 
@@ -39,7 +45,7 @@ The arena writes logs to the output directory:
 output/
 ├── summary.json              # Per-window metrics summaries
 ├── round_results.json        # Per-agent round scores
-├── round_meta.json           # Winner, scores, invalid agents, timestamps
+├── round_meta.json           # Winner, scores, invalid agents (zero score), timestamps
 ├── BUY_AND_HOLD/
 │   ├── policy_log.jsonl      # Agent actions per step
 │   ├── trade_log.jsonl       # Executed trades
@@ -55,31 +61,10 @@ output/
 1. **Config** — Loads and validates `ArenaConfig` via Zod schema
 2. **Data** — Loads bars via tape source or `--data`, validates integrity
 3. **Windowing** — Builds window definitions from config
-4. **Agents** — Resolves built-in baselines + custom agent modules
+4. **Agents** — Resolves built-in baselines + custom Rust workspaces
 5. **Simulation** — Runs all agents per window via `runWindow()`
 6. **Aggregation** — Computes per-agent round metrics and scores
 7. **Logging** — Writes JSONL logs and summary files
-
-## Custom Agents
-
-Export a `PolicyFn` as the default export or as a named `policy` export:
-
-```ts
-// my-agent.ts
-import { ActionType, type PolicyFn } from "@solclash/simulator";
-
-const policy: PolicyFn = (input) => {
-  const lastBar = input.ohlcv[input.ohlcv.length - 1];
-  if (lastBar && lastBar.close > lastBar.open) {
-    return { version: 1, action_type: ActionType.BUY, order_qty: 1, err_code: 0 };
-  }
-  return { version: 1, action_type: ActionType.HOLD, order_qty: 0, err_code: 0 };
-};
-
-export default policy;
-```
-
-Then pass it with `--agents ./my-agent.ts`.
 
 ## On-Chain Agents
 
@@ -87,12 +72,18 @@ Run Rust policy programs compiled to SBF and executed via the harness:
 
 ```sh
 bun run arena -- --config arena-config.json --data bars.json \
-  --onchain-agents ./agent-a ./agent-b \
+  --agent ./agent-a --agent ./agent-b \
   --harness ./apps/arena-harness/target/release/solclash-harness
 ```
 
 Each on-chain agent directory must contain `program/` and build with
 `cargo build-sbf`, producing `program/target/deploy/solclash_policy.so`.
+
+Invalid workspace paths fail fast (for example, missing `program/` or
+`program/Cargo.toml`).
+
+Validation failures are recorded in `round_meta.json` under `invalid_agents`,
+and invalid agents receive a score of 0 for the round.
 
 ## Tests
 

@@ -17,6 +17,13 @@ function makeBars(prices: number[]): OhlcvBar[] {
   }));
 }
 
+function requireValue<T>(value: T | null | undefined, label: string): T {
+  if (value === null || value === undefined) {
+    throw new Error(`Missing ${label}`);
+  }
+  return value;
+}
+
 const config: ArenaConfig = {
   arena_id: "test",
   symbol: "BTC-PERP",
@@ -58,7 +65,10 @@ describe("engine", () => {
     const result = await runWindow(config, bars, "w1", [
       { id: "flat", policy: FLAT },
     ]);
-    const flat = result.agent_results["flat"]!;
+    const flat = requireValue(
+      result.agent_results["flat"],
+      "flat agent result",
+    );
 
     expect(flat.trade_log).toHaveLength(0);
     expect(flat.final_account.position_qty).toBe(0);
@@ -72,11 +82,12 @@ describe("engine", () => {
     const result = await runWindow(config, bars, "w2", [
       { id: "bah", policy: BUY_AND_HOLD },
     ]);
-    const bah = result.agent_results["bah"]!;
+    const bah = requireValue(result.agent_results["bah"], "bah agent result");
 
     // BUY at step 0 → exec at bar 1 open = 100 (0 slippage, 0 fee)
     expect(bah.trade_log).toHaveLength(1);
-    expect(bah.trade_log[0]!.delta_qty).toBe(1);
+    const firstTrade = requireValue(bah.trade_log[0], "bah first trade");
+    expect(firstTrade.delta_qty).toBe(1);
     expect(bah.final_account.position_qty).toBe(1);
     // equity_start (step 0, flat) = 10000
     // equity_end (step 9, 1 BTC @ 100) = 10000 + 100 = 10100
@@ -89,7 +100,7 @@ describe("engine", () => {
     const result = await runWindow(config, bars, "w3", [
       { id: "bah", policy: BUY_AND_HOLD },
     ]);
-    const bah = result.agent_results["bah"]!;
+    const bah = requireValue(result.agent_results["bah"], "bah agent result");
 
     // Buy 1 at bar1 open = 100, final close = 120
     // equity_end = 10000 + 1*(120) - 1*100 = 10020
@@ -121,24 +132,25 @@ describe("engine", () => {
     const result = await runWindow(cfgWithFees, bars, "w4", [
       { id: "bah", policy: BUY_AND_HOLD },
     ]);
-    const bah = result.agent_results["bah"]!;
+    const bah = requireValue(result.agent_results["bah"], "bah agent result");
 
     // exec_price = 100 * (1 + 5/10000) = 100.05
     // fee = 1 * 100.05 * 5/10000 = 0.050025
-    expect(bah.trade_log[0]!.exec_price).toBeCloseTo(100.05, 10);
-    expect(bah.trade_log[0]!.fee_paid).toBeCloseTo(0.050025, 10);
+    const firstTrade = requireValue(bah.trade_log[0], "bah first trade");
+    expect(firstTrade.exec_price).toBeCloseTo(100.05, 10);
+    expect(firstTrade.fee_paid).toBeCloseTo(0.050025, 10);
   });
 
   test("opposite trades net to zero impact", async () => {
     const bars = makeBars([100, 100, 100, 100, 100, 100, 100, 100, 100, 100]);
-    const buy = (input: any) => ({
-      version: 1,
+    const buy = (_input: unknown) => ({
+      version: 1 as const,
       action_type: ActionType.BUY,
       order_qty: 1,
       err_code: 0,
     });
-    const sell = (input: any) => ({
-      version: 1,
+    const sell = (_input: unknown) => ({
+      version: 1 as const,
       action_type: ActionType.SELL,
       order_qty: 1,
       err_code: 0,
@@ -147,13 +159,21 @@ describe("engine", () => {
       { id: "buy", policy: buy },
       { id: "sell", policy: sell },
     ]);
-    const buyRes = result.agent_results["buy"]!;
-    const sellRes = result.agent_results["sell"]!;
+    const buyRes = requireValue(
+      result.agent_results["buy"],
+      "buy agent result",
+    );
+    const sellRes = requireValue(
+      result.agent_results["sell"],
+      "sell agent result",
+    );
+    const buyTrade = requireValue(buyRes.trade_log[0], "buy first trade");
+    const sellTrade = requireValue(sellRes.trade_log[0], "sell first trade");
 
-    expect(buyRes.trade_log[0]!.exec_price).toBeCloseTo(100, 10);
-    expect(buyRes.trade_log[0]!.impact_bps).toBe(0);
-    expect(buyRes.trade_log[0]!.net_qty).toBe(0);
-    expect(sellRes.trade_log[0]!.exec_price).toBeCloseTo(100, 10);
+    expect(buyTrade.exec_price).toBeCloseTo(100, 10);
+    expect(buyTrade.impact_bps).toBe(0);
+    expect(buyTrade.net_qty).toBe(0);
+    expect(sellTrade.exec_price).toBeCloseTo(100, 10);
   });
 
   test("same-side trades incur impact", async () => {
@@ -163,8 +183,8 @@ describe("engine", () => {
       slippage_bps: 0,
     };
     const bars = makeBars([100, 100, 100, 100, 100, 100, 100, 100, 100, 100]);
-    const buy = (input: any) => ({
-      version: 1,
+    const buy = (_input: unknown) => ({
+      version: 1 as const,
       action_type: ActionType.BUY,
       order_qty: 1,
       err_code: 0,
@@ -173,24 +193,28 @@ describe("engine", () => {
       { id: "buy1", policy: buy },
       { id: "buy2", policy: buy },
     ]);
-    const buy1 = result.agent_results["buy1"]!;
+    const buy1 = requireValue(
+      result.agent_results["buy1"],
+      "buy1 agent result",
+    );
     // net_qty = 2, volume = 100, impact_k_bps = 100 => impact_bps = 2
-    expect(buy1.trade_log[0]!.impact_bps).toBeCloseTo(2, 10);
-    expect(buy1.trade_log[0]!.exec_price).toBeCloseTo(100.02, 6);
+    const buy1Trade = requireValue(buy1.trade_log[0], "buy1 first trade");
+    expect(buy1Trade.impact_bps).toBeCloseTo(2, 10);
+    expect(buy1Trade.exec_price).toBeCloseTo(100.02, 6);
   });
 
   test("rejects trades that would fail initial margin at execution price", async () => {
     const bars = makeBars([100, 100]);
-    const shortTooBig = (input: any) =>
+    const shortTooBig = (input: { step_index: number }) =>
       input.step_index === 0
         ? {
-            version: 1,
+            version: 1 as const,
             action_type: ActionType.SELL,
             order_qty: 200,
             err_code: 0,
           }
         : {
-            version: 1,
+            version: 1 as const,
             action_type: ActionType.HOLD,
             order_qty: 0,
             err_code: 0,
@@ -199,13 +223,20 @@ describe("engine", () => {
     const result = await runWindow(config, bars, "w7", [
       { id: "short", policy: shortTooBig },
     ]);
-    const short = result.agent_results["short"]!;
+    const short = requireValue(
+      result.agent_results["short"],
+      "short agent result",
+    );
 
     expect(short.trade_log).toHaveLength(0);
     expect(short.final_account.position_qty).toBe(0);
-    expect(short.policy_log[0]!.status).toBe("ERR");
-    expect(short.policy_log[0]!.err_code).toBe(6);
-    expect(short.policy_log[0]!.action_type).toBe(ActionType.HOLD);
+    const shortPolicy = requireValue(
+      short.policy_log[0],
+      "short first policy log",
+    );
+    expect(shortPolicy.status).toBe("ERR");
+    expect(shortPolicy.err_code).toBe(6);
+    expect(shortPolicy.action_type).toBe(ActionType.HOLD);
   });
 
   test("rejects trades that would exceed max leverage at execution price", async () => {
@@ -214,16 +245,16 @@ describe("engine", () => {
       ...config,
       max_leverage_bps: 5000,
     };
-    const shortMedium = (input: any) =>
+    const shortMedium = (input: { step_index: number }) =>
       input.step_index === 0
         ? {
-            version: 1,
+            version: 1 as const,
             action_type: ActionType.SELL,
             order_qty: 50,
             err_code: 0,
           }
         : {
-            version: 1,
+            version: 1 as const,
             action_type: ActionType.HOLD,
             order_qty: 0,
             err_code: 0,
@@ -232,12 +263,19 @@ describe("engine", () => {
     const result = await runWindow(cfgWithLeverageCap, bars, "w8", [
       { id: "short", policy: shortMedium },
     ]);
-    const short = result.agent_results["short"]!;
+    const short = requireValue(
+      result.agent_results["short"],
+      "short agent result",
+    );
 
     expect(short.trade_log).toHaveLength(0);
     expect(short.final_account.position_qty).toBe(0);
-    expect(short.policy_log[0]!.status).toBe("ERR");
-    expect(short.policy_log[0]!.err_code).toBe(6);
-    expect(short.policy_log[0]!.action_type).toBe(ActionType.HOLD);
+    const shortPolicy = requireValue(
+      short.policy_log[0],
+      "short first policy log",
+    );
+    expect(shortPolicy.status).toBe("ERR");
+    expect(shortPolicy.err_code).toBe(6);
+    expect(shortPolicy.action_type).toBe(ActionType.HOLD);
   });
 });

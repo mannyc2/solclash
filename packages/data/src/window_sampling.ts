@@ -11,19 +11,29 @@ export interface WindowStats {
   volume: number;
 }
 
+type BucketMetric = Exclude<keyof WindowStats, "window_id">;
+
 export function computeWindowStats(
   bars: OhlcvBar[],
   windowDef: WindowDef,
 ): WindowStats {
   const slice = bars.slice(windowDef.start_index, windowDef.end_index + 1);
   if (slice.length === 0) {
-    return { window_id: windowDef.window_id, volatility: 0, trend: 0, volume: 0 };
+    return {
+      window_id: windowDef.window_id,
+      volatility: 0,
+      trend: 0,
+      volume: 0,
+    };
   }
 
   const closes = slice.map((b) => b.close);
   const returns: number[] = [];
   for (let i = 1; i < closes.length; i++) {
-    const prev = closes[i - 1] ?? closes[0]!;
+    const prev = closes[i - 1];
+    if (prev === undefined) {
+      continue;
+    }
     const curr = closes[i] ?? prev;
     const denom = prev === 0 ? 1 : prev;
     returns.push((curr - prev) / denom);
@@ -44,8 +54,7 @@ export function computeWindowStats(
   const last = closes[closes.length - 1] ?? first;
   const trend = first === 0 ? 0 : (last - first) / first;
 
-  const volume =
-    slice.reduce((sum, b) => sum + b.volume, 0) / slice.length;
+  const volume = slice.reduce((sum, b) => sum + b.volume, 0) / slice.length;
 
   return { window_id: windowDef.window_id, volatility, trend, volume };
 }
@@ -67,11 +76,7 @@ export function selectWindows(
   const stats = windows.map((w) => computeWindowStats(bars, w));
   const seed = sampling.seed ?? "";
 
-  const stressCount = Math.min(
-    sampling.stress_count ?? 0,
-    total,
-    windows.length,
-  );
+  const stressCount = Math.min(sampling.stress_count, total, windows.length);
 
   const stressIds = new Set(
     // Stress windows are the most volatile; a hash breaks ties deterministically.
@@ -88,12 +93,12 @@ export function selectWindows(
   const stressWindows = windows.filter((w) => stressIds.has(w.window_id));
   const remaining = windows.filter((w) => !stressIds.has(w.window_id));
 
-  const bucketConfig = sampling.buckets ?? {
-    volatility: 3,
-    trend: 3,
-    volume: 3,
-  };
-  const volBuckets = assignBuckets(stats, "volatility", bucketConfig.volatility);
+  const bucketConfig = sampling.buckets;
+  const volBuckets = assignBuckets(
+    stats,
+    "volatility",
+    bucketConfig.volatility,
+  );
   const trendBuckets = assignBuckets(stats, "trend", bucketConfig.trend);
   const volumeBuckets = assignBuckets(stats, "volume", bucketConfig.volume);
 
@@ -111,8 +116,7 @@ export function selectWindows(
   for (const list of groups.values()) {
     // Keep selection order stable within buckets across runs.
     list.sort(
-      (a, b) =>
-        hashKey(a.window_id, seed) - hashKey(b.window_id, seed),
+      (a, b) => hashKey(a.window_id, seed) - hashKey(b.window_id, seed),
     );
   }
 
@@ -127,7 +131,9 @@ export function selectWindows(
     for (const key of groupKeys) {
       const list = groups.get(key);
       if (!list || list.length === 0) continue;
-      selected.push(list.shift()!);
+      const next = list.shift();
+      if (!next) continue;
+      selected.push(next);
       added = true;
       if (selected.length >= total) break;
     }
@@ -147,7 +153,7 @@ export function selectWindows(
 
 function assignBuckets(
   stats: WindowStats[],
-  key: keyof WindowStats,
+  key: BucketMetric,
   bucketCount: number,
 ): Map<string, number> {
   const buckets = Math.max(1, bucketCount);
@@ -157,11 +163,12 @@ function assignBuckets(
   if (total === 0) return map;
 
   for (let i = 0; i < total; i++) {
-    const bucket = Math.min(
-      buckets - 1,
-      Math.floor((i / total) * buckets),
-    );
-    map.set(sorted[i]!.window_id, bucket);
+    const bucket = Math.min(buckets - 1, Math.floor((i / total) * buckets));
+    const stat = sorted[i];
+    if (!stat) {
+      continue;
+    }
+    map.set(stat.window_id, bucket);
   }
   return map;
 }

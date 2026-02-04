@@ -6,8 +6,5 @@
       "@solclash/data": ["./packages/data/src"]
     }
   },
-  "include": [
-    "packages/*/src/**/*.ts",
-    "apps/*/src/**/*.ts"
-  ]
+  "include": ["packages/*/src/**/*.ts", "apps/*/src/**/*.ts", "scripts/**/*.ts"]
 }

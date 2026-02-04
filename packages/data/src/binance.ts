@@ -109,7 +109,10 @@ export async function fetchAllKlines(
     bars.push(...page);
 
     // Advance cursor past the last bar's close time
-    const lastBar = page[page.length - 1]!;
+    const lastBar = page.at(-1);
+    if (!lastBar) {
+      break;
+    }
     cursor = lastBar.bar_end_ts_ms + 1;
   }
 

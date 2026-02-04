@@ -2,7 +2,11 @@ import { $, JSONL } from "bun";
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { executeRound } from "../runner.js";
 import { getBuiltinAgent, type Agent } from "../agents.js";
-import { ActionType, type ArenaConfigResolved, type OhlcvBar } from "@solclash/simulator";
+import {
+  ActionType,
+  type ArenaConfigResolved,
+  type OhlcvBar,
+} from "@solclash/simulator";
 import { join } from "node:path";
 
 function makeFixtureBars(n: number): OhlcvBar[] {
@@ -20,6 +24,13 @@ function makeFixtureBars(n: number): OhlcvBar[] {
       volume: 100,
     };
   });
+}
+
+function requireValue<T>(value: T | null | undefined, label: string): T {
+  if (value === null || value === undefined) {
+    throw new Error(`Missing ${label}`);
+  }
+  return value;
 }
 
 const config: ArenaConfigResolved = {
@@ -82,15 +93,21 @@ describe("arena e2e", () => {
         .default;
       const agents: Agent[] = [
         { id: "MOMENTUM", policy: momentumPolicy },
-        getBuiltinAgent("BUY_AND_HOLD")!,
-        getBuiltinAgent("FLAT")!,
+        requireValue(getBuiltinAgent("BUY_AND_HOLD"), "BUY_AND_HOLD agent"),
+        requireValue(getBuiltinAgent("FLAT"), "FLAT agent"),
       ];
 
       const result = await executeRound(config, bars, agents, tmpDir2);
 
-      const momentum = result.round_metrics["MOMENTUM"]!;
-      const flat = result.round_metrics["FLAT"]!;
-      const buyHold = result.round_metrics["BUY_AND_HOLD"]!;
+      const momentum = requireValue(
+        result.round_metrics["MOMENTUM"],
+        "MOMENTUM metrics",
+      );
+      const flat = requireValue(result.round_metrics["FLAT"], "FLAT metrics");
+      const buyHold = requireValue(
+        result.round_metrics["BUY_AND_HOLD"],
+        "BUY_AND_HOLD metrics",
+      );
 
       // MOMENTUM actively trades so it must have non-zero PnL
       expect(momentum.pnl_total).not.toBe(0);
@@ -118,9 +135,13 @@ describe("arena e2e", () => {
       const policyLogPath = join(tmpDir2, "MOMENTUM", "policy_log.jsonl");
       const policyLogText = await Bun.file(policyLogPath).text();
       const policyEntries = JSONL.parse(policyLogText);
-      const buyEntries = policyEntries.filter(
-        (e: { action_type: number }) => e.action_type === ActionType.BUY,
-      );
+      const buyEntries = policyEntries.filter((entry) => {
+        if (typeof entry !== "object" || entry === null) {
+          return false;
+        }
+        const actionType = (entry as { action_type?: unknown }).action_type;
+        return actionType === ActionType.BUY;
+      });
       expect(buyEntries.length).toBeGreaterThan(0);
     } finally {
       await $`rm -rf ${tmpDir2}`.quiet();
@@ -130,8 +151,8 @@ describe("arena e2e", () => {
   maybeTest("runs baselines on fixture data and produces logs", async () => {
     const bars = makeFixtureBars(20);
     const agents: Agent[] = [
-      getBuiltinAgent("BUY_AND_HOLD")!,
-      getBuiltinAgent("FLAT")!,
+      requireValue(getBuiltinAgent("BUY_AND_HOLD"), "BUY_AND_HOLD agent"),
+      requireValue(getBuiltinAgent("FLAT"), "FLAT agent"),
     ];
 
     const result = await executeRound(config, bars, agents, tmpDir);
@@ -141,21 +162,33 @@ describe("arena e2e", () => {
     expect(result.round_metrics["FLAT"]).toBeDefined();
 
     // FLAT should have 0 PnL
-    expect(result.round_metrics["FLAT"]!.pnl_total).toBe(0);
+    const flatMetrics = requireValue(
+      result.round_metrics["FLAT"],
+      "FLAT metrics",
+    );
+    expect(flatMetrics.pnl_total).toBe(0);
 
     // BUY_AND_HOLD should have positive PnL (rising prices)
-    expect(result.round_metrics["BUY_AND_HOLD"]!.pnl_total).toBeGreaterThan(0);
+    const buyHoldMetrics = requireValue(
+      result.round_metrics["BUY_AND_HOLD"],
+      "BUY_AND_HOLD metrics",
+    );
+    expect(buyHoldMetrics.pnl_total).toBeGreaterThan(0);
 
     // Log files exist
     const summaryPath = join(tmpDir, "summary.json");
     expect(await Bun.file(summaryPath).exists()).toBe(true);
-    expect(await Bun.file(join(tmpDir, "round_results.json")).exists()).toBe(true);
-    expect(await Bun.file(join(tmpDir, "BUY_AND_HOLD", "policy_log.jsonl")).exists()).toBe(true);
+    expect(await Bun.file(join(tmpDir, "round_results.json")).exists()).toBe(
+      true,
+    );
+    expect(
+      await Bun.file(join(tmpDir, "BUY_AND_HOLD", "policy_log.jsonl")).exists(),
+    ).toBe(true);
 
     const summaries = await Bun.file(summaryPath).json();
     expect(Array.isArray(summaries)).toBe(true);
     expect(summaries).toHaveLength(config.number_of_windows_per_round);
-    const first = summaries[0]!;
+    const first = requireValue(summaries[0], "first summary");
     expect(first.metrics_by_agent).toBeDefined();
     expect(first.metrics_by_agent["BUY_AND_HOLD"]).toBeDefined();
     expect(first.metrics_by_agent["FLAT"]).toBeDefined();

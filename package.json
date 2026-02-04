@@ -7,13 +7,37 @@
   ],
   "scripts": {
     "test": "bun test --recursive",
+    "test:fast": "bun run scripts/run-fast-tests.ts",
+    "lint": "bunx eslint . --max-warnings=0",
+    "lint:fix": "bunx eslint . --fix",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "typecheck:strict": "bunx tsc --noEmit -p tsconfig.strict.json",
+    "verify": "bun run lint && bun run typecheck:strict && bun run test:fast",
+    "verify:full": "bun run lint && bun run typecheck:strict && bun run test",
     "format": "bunx prettier -w .",
+    "prepare": "husky",
     "arena": "bun run apps/arena/src/cli.ts",
-    "tournament": "bun run apps/tournament/src/cli.ts"
+    "tournament": "bun run apps/tournament/src/cli.ts",
+    "data": "bun run packages/data/src/cli.ts"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,cjs}": [
+      "bunx eslint --fix",
+      "bunx prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "bunx prettier --write"
+    ]
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "@types/bun": "^1.1.0",
+    "@typescript-eslint/eslint-plugin": "^8.54.0",
+    "@typescript-eslint/parser": "^8.54.0",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
     "prettier": "^3.3.3",
     "typescript": "^5.7.0"
   }

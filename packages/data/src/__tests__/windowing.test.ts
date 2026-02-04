@@ -15,6 +15,13 @@ function makeBars(n: number): OhlcvBar[] {
   }));
 }
 
+function requireValue<T>(value: T | null | undefined, label: string): T {
+  if (value === null || value === undefined) {
+    throw new Error(`Missing ${label}`);
+  }
+  return value;
+}
+
 describe("buildWindows", () => {
   test("no windows if bars < duration", () => {
     const bars = makeBars(5);
@@ -25,16 +32,19 @@ describe("buildWindows", () => {
     const bars = makeBars(10);
     const windows = buildWindows(bars, 10, 0);
     expect(windows).toHaveLength(1);
-    expect(windows[0]!.start_index).toBe(0);
-    expect(windows[0]!.end_index).toBe(9);
+    const firstWindow = requireValue(windows[0], "first window");
+    expect(firstWindow.start_index).toBe(0);
+    expect(firstWindow.end_index).toBe(9);
   });
 
   test("multiple non-overlapping windows", () => {
     const bars = makeBars(20);
     const windows = buildWindows(bars, 10, 0);
     expect(windows).toHaveLength(2);
-    expect(windows[0]!.start_index).toBe(0);
-    expect(windows[1]!.start_index).toBe(10);
+    const firstWindow = requireValue(windows[0], "first window");
+    const secondWindow = requireValue(windows[1], "second window");
+    expect(firstWindow.start_index).toBe(0);
+    expect(secondWindow.start_index).toBe(10);
   });
 
   test("overlapping windows (50%)", () => {
@@ -43,15 +53,21 @@ describe("buildWindows", () => {
     // step = 10 * (1 - 0.5) = 5
     // windows: 0-9, 5-14, 10-19
     expect(windows).toHaveLength(3);
-    expect(windows[1]!.start_index).toBe(5);
+    const middleWindow = requireValue(windows[1], "middle window");
+    expect(middleWindow.start_index).toBe(5);
   });
 });
 
 describe("sliceBars", () => {
   test("slices correctly", () => {
     const bars = makeBars(20);
-    const sliced = sliceBars(bars, { window_id: "w0", start_index: 5, end_index: 14 });
+    const sliced = sliceBars(bars, {
+      window_id: "w0",
+      start_index: 5,
+      end_index: 14,
+    });
     expect(sliced).toHaveLength(10);
-    expect(sliced[0]!.bar_start_ts_ms).toBe(5 * 60000);
+    const firstBar = requireValue(sliced[0], "first sliced bar");
+    expect(firstBar.bar_start_ts_ms).toBe(5 * 60000);
   });
 });

@@ -1,16 +1,23 @@
 #!/usr/bin/env bun
 import { parseArgs } from "util";
-import { dirname, resolve } from "node:path";
-import { statSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
+import { cp, mkdir, rm } from "node:fs/promises";
 import {
   ArenaConfigSchema,
   ScoringWeightsSchema,
   type ArenaConfigResolved,
 } from "@solclash/simulator";
 import { loadTapeWithMeta } from "@solclash/data";
-import { resolveAgentsWithErrors } from "@solclash/arena";
+import {
+  resolveAgentsWithErrors,
+  resolveOnchainWorkspace,
+  type OnchainWorkspace,
+} from "@solclash/arena";
 import { resolveScoringWeightsPath } from "../../arena/src/weights.js";
 import { runTournament } from "./runner.js";
+import { buildEditConfig } from "./edit/config.js";
+import type { AgentSource, AgentProvider } from "./runner.js";
+import { DockerRuntime } from "./runtime/docker.js";
 
 async function main() {
   const { values } = parseArgs({
@@ -20,9 +27,17 @@ async function main() {
       data: { type: "string", short: "d" },
       output: { type: "string", short: "o", default: "./logs" },
       rounds: { type: "string", short: "r", default: "1" },
-      agents: { type: "string", short: "a", multiple: true, default: [] },
-      "onchain-agents": { type: "string", multiple: true, default: [] },
+      agent: { type: "string", short: "a", multiple: true, default: [] },
+      provider: { type: "string", default: "anthropic" },
       harness: { type: "string" },
+      "no-edit": { type: "boolean", default: false },
+      "edit-prompt": { type: "string", default: "default" },
+      "edit-max-turns": { type: "string", default: "250" },
+      "edit-concurrency": { type: "string", default: "4" },
+      "edit-timeout-ms": { type: "string" },
+      "edit-network-enabled": { type: "boolean", default: false },
+      "edit-network-allowlist": { type: "string", multiple: true, default: [] },
+      "edit-model": { type: "string" },
     },
     strict: true,
     allowPositionals: true,
@@ -30,14 +45,51 @@ async function main() {
 
   if (!values.config) {
     console.error(
-      "Usage: solclash-tournament --config <path> [--data <path>] [--rounds <n>] [--output <dir>] [--agents <path>...] [--onchain-agents <path>...] [--harness <path>]",
+      "Usage: solclash-tournament --config <path> [--data <path>] [--rounds <n>] [--output <dir>] [--agent <path>...] [--provider <provider>] [--no-edit] [--edit-prompt <id|path>] [--edit-max-turns <n>] [--edit-concurrency <n>] [--edit-timeout-ms <n>] [--edit-network-enabled] [--edit-network-allowlist <host>...]",
     );
     process.exit(1);
+  }
+
+  const VALID_PROVIDERS: AgentProvider[] = [
+    "anthropic",
+    "openai",
+    "google",
+    "glm",
+    "kimi",
+  ];
+  const defaultProvider = values.provider as AgentProvider;
+  if (!VALID_PROVIDERS.includes(defaultProvider)) {
+    throw new Error(
+      `Invalid --provider value: ${values.provider}. Must be one of: ${VALID_PROVIDERS.join(", ")}`,
+    );
   }
 
   const rounds = Math.max(1, Number(values.rounds));
   if (!Number.isFinite(rounds)) {
     throw new Error(`Invalid --rounds value: ${values.rounds}`);
+  }
+
+  const editMaxTurns = Number(values["edit-max-turns"]);
+  if (!Number.isFinite(editMaxTurns) || editMaxTurns <= 0) {
+    throw new Error(
+      `Invalid --edit-max-turns value: ${values["edit-max-turns"]}`,
+    );
+  }
+
+  const editConcurrency = Number(values["edit-concurrency"]);
+  if (!Number.isFinite(editConcurrency) || editConcurrency <= 0) {
+    throw new Error(
+      `Invalid --edit-concurrency value: ${values["edit-concurrency"]}`,
+    );
+  }
+
+  const editTimeoutMs = values["edit-timeout-ms"]
+    ? Number(values["edit-timeout-ms"])
+    : undefined;
+  if (editTimeoutMs !== undefined && !Number.isFinite(editTimeoutMs)) {
+    throw new Error(
+      `Invalid --edit-timeout-ms value: ${values["edit-timeout-ms"]}`,
+    );
   }
 
   // Validate config
@@ -51,8 +103,7 @@ async function main() {
 
   let scoringWeights = config.scoring_weights;
   if (!scoringWeights) {
-    const refValue =
-      config.scoring_weights_reference ?? "docs/scoring-weights.json";
+    const refValue = config.scoring_weights_reference;
     const refPath = resolveScoringWeightsPath(refValue, process.cwd());
     const rawWeights = await Bun.file(refPath).json();
     const weightsResult = ScoringWeightsSchema.safeParse(rawWeights);
@@ -145,36 +196,79 @@ async function main() {
 
   console.log(`Loaded ${bars.length} bars`);
 
-  // Resolve agents
-  const agentPaths = (values.agents ?? []) as string[];
+  // Resolve custom on-chain workspaces.
+  const agentPaths = values.agent as string[];
+  const onchainWorkspaces: OnchainWorkspace[] = [];
+  for (const p of agentPaths) {
+    try {
+      const workspace = await resolveOnchainWorkspace(p);
+      onchainWorkspaces.push(workspace);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "invalid workspace";
+      throw new Error(`Invalid on-chain agent workspace '${p}': ${message}`);
+    }
+  }
+
   const { agents } = await resolveAgentsWithErrors(
     finalConfig.baseline_bots_enabled,
-    agentPaths,
+    [],
   );
 
   console.log(`Agents: ${agents.map((a) => a.id).join(", ")}`);
 
-  // Build inject targets from agent paths + onchain-agent dirs
-  const onchainAgentDirs = (values["onchain-agents"] ?? []) as string[];
-  const injectTargets: string[] = [];
-  for (const p of agentPaths) {
-    const abs = resolve(p);
-    const stat = statSync(abs);
-    injectTargets.push(stat.isDirectory() ? abs : dirname(abs));
-  }
-  for (const dir of onchainAgentDirs) {
-    injectTargets.push(resolve(dir));
+  const outputRoot = resolve(values.output);
+
+  // Copy agent workspaces into <outputRoot>/workspaces/ so the original
+  // directories (e.g. starter/) stay immutable across tournament runs.
+  const workspacesRoot = join(outputRoot, "workspaces");
+  await mkdir(workspacesRoot, { recursive: true });
+
+  const agentSources: AgentSource[] = [];
+  for (const name of finalConfig.baseline_bots_enabled) {
+    agentSources.push({ id: name, provider: "builtin" });
   }
 
-  const outputRoot = resolve(values.output ?? "./logs");
+  const injectTargets: string[] = [];
+
+  for (const workspace of onchainWorkspaces) {
+    const id = basename(workspace.rootDir);
+    const workingCopy = join(workspacesRoot, id);
+    await rm(workingCopy, { recursive: true, force: true });
+    await cp(workspace.rootDir, workingCopy, { recursive: true });
+    agentSources.push({
+      id,
+      provider: defaultProvider,
+      workspace: workingCopy,
+    });
+    injectTargets.push(workingCopy);
+  }
+
+  const editEnabled = !values["no-edit"];
+  const editConfig = buildEditConfig({
+    enabled: editEnabled,
+    prompt_ref: values["edit-prompt"],
+    max_turns: editMaxTurns,
+    concurrency: editConcurrency,
+    timeout_ms: editTimeoutMs,
+    network_policy: {
+      enabled: values["edit-network-enabled"],
+      allowlist: values["edit-network-allowlist"] as string[],
+    },
+    model: values["edit-model"],
+  });
+
+  const runtime = new DockerRuntime();
 
   const result = await runTournament({
     config: finalConfig,
     bars,
     agents,
+    agentSources,
     rounds,
     outputDir: outputRoot,
     injectTargets: [...new Set(injectTargets)],
+    edit: editConfig,
+    runtime,
   });
 
   console.log(
