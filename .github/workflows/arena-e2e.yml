@@ -7,7 +7,8 @@ on:
       - "apps/arena-harness/**"
       - "packages/simulator/**"
       - "packages/data/**"
-      - "starter/**"
+      - "packages/arenas/**"
+      - "packages/agents/**"
       - ".github/workflows/arena-e2e.yml"
   pull_request:
     paths:
@@ -15,7 +16,8 @@ on:
       - "apps/arena-harness/**"
       - "packages/simulator/**"
       - "packages/data/**"
-      - "starter/**"
+      - "packages/arenas/**"
+      - "packages/agents/**"
       - ".github/workflows/arena-e2e.yml"
 
 jobs:
@@ -35,10 +37,25 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+      - name: Cache Cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/arena-harness/target
+            packages/arenas/arenas/btc-perp-v1/starter/program/target
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('apps/arena-harness/Cargo.lock', 'packages/arenas/arenas/btc-perp-v1/starter/program/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-e2e-
       - name: Install Solana toolchain
         run: |
-          sh -c "$(curl -sSfL https://release.solana.com/${SOLANA_VERSION}/install)"
+          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Pre-build harness and starter program
+        run: |
+          cargo build --manifest-path apps/arena-harness/Cargo.toml
+          cargo build-sbf --manifest-path packages/arenas/arenas/btc-perp-v1/starter/program/Cargo.toml
       - name: Install dependencies
         run: bun install
       - name: Run E2E tests

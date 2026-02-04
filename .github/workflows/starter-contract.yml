@@ -3,11 +3,11 @@ name: starter-contract
 on:
   push:
     paths:
-      - "starter/**"
+      - "packages/arenas/arenas/btc-perp-v1/starter/**"
       - ".github/workflows/starter-contract.yml"
   pull_request:
     paths:
-      - "starter/**"
+      - "packages/arenas/arenas/btc-perp-v1/starter/**"
       - ".github/workflows/starter-contract.yml"
 
 jobs:
@@ -22,13 +22,23 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+      - name: Cache Cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/arenas/arenas/btc-perp-v1/starter/program/target
+          key: ${{ runner.os }}-cargo-starter-${{ hashFiles('packages/arenas/arenas/btc-perp-v1/starter/program/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-starter-
       - name: Install Solana toolchain
         run: |
-          sh -c "$(curl -sSfL https://release.solana.com/${SOLANA_VERSION}/install)"
+          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - name: Cargo test
-        working-directory: starter/program
+        working-directory: packages/arenas/arenas/btc-perp-v1/starter/program
         run: cargo test
       - name: Cargo build-sbf
-        working-directory: starter/program
+        working-directory: packages/arenas/arenas/btc-perp-v1/starter/program
         run: cargo build-sbf

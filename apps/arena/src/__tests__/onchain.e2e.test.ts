@@ -74,7 +74,7 @@ describe("arena on-chain e2e", () => {
   const runE2E = Boolean(process.env["E2E_TESTS"]);
 
   const maybeTest = runE2E ? test : test.skip;
-  const timeoutMs = 60000;
+  const timeoutMs = 180000;
 
   maybeTest(
     "runs starter program via harness and produces logs",
