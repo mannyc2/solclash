@@ -1,6 +1,7 @@
 import { $ } from "bun";
 import { join } from "node:path";
 import type { ArenaConfigResolved, OhlcvBar } from "@solclash/simulator";
+import type { AgentProvider } from "@solclash/agents";
 import {
   executeRound,
   writeRoundMeta,
@@ -13,13 +14,11 @@ import type { EditConfig } from "./edit/types.js";
 import type { ContainerRuntime } from "./runtime/container.js";
 import { runCompetitionInContainer } from "./competition/container.js";
 
-export type AgentProvider = "anthropic" | "openai" | "google" | "glm" | "kimi";
-
 export interface AgentSource {
   id: string;
   provider: AgentProvider | "builtin";
   workspace?: string;
-  entrypoint?: string;
+  model?: string;
 }
 
 const PROVIDER_ENV_DEFAULTS: Record<
@@ -46,7 +45,7 @@ export function getProviderEnvDefaults(provider: AgentProvider): {
 export function validateAgentEnvironment(agents: AgentSource[]): void {
   const missingCredentials: Array<{
     agentId: string;
-    provider: string;
+    provider: AgentProvider;
     missing: string[];
   }> = [];
 
@@ -83,9 +82,7 @@ export function validateAgentEnvironment(agents: AgentSource[]): void {
       for (const envVar of missing) {
         errorLines.push(`  - ${envVar}`);
       }
-      const providerDefaults = getProviderEnvDefaults(
-        provider as AgentProvider,
-      );
+      const providerDefaults = getProviderEnvDefaults(provider);
       errorLines.push(`  - ${providerDefaults.base_url_env} (optional)`);
       errorLines.push("");
     }

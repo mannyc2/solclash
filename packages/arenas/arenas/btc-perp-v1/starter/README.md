@@ -10,7 +10,8 @@ trading policy so it scores higher in the arena.
 | `program/` | Rust/Solana | `src/policy.rs` — `pub fn evaluate` |
 
 The tournament and arena CLIs execute custom agents from Rust workspaces
-(`program/Cargo.toml`). This `starter/` directory is the canonical starter path.
+(`program/Cargo.toml`). This directory is the canonical starter path for
+`btc-perp-v1` (`packages/arenas/arenas/btc-perp-v1/starter/`).
 
 ## Scoring
 

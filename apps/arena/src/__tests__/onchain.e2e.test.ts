@@ -86,7 +86,9 @@ describe("arena on-chain e2e", () => {
         tmpDir = (await $`mktemp -d`.text()).trim();
 
         await $`cargo build --manifest-path apps/arena-harness/Cargo.toml`;
-        await $`cargo build-sbf`.cwd("starter/program");
+        await $`cargo build-sbf`.cwd(
+          "packages/arenas/arenas/btc-perp-v1/starter/program",
+        );
 
         const harnessPath = resolve(
           process.cwd(),
@@ -94,7 +96,7 @@ describe("arena on-chain e2e", () => {
         );
         const soPath = resolve(
           process.cwd(),
-          "starter/program/target/deploy/solclash_policy.so",
+          "packages/arenas/arenas/btc-perp-v1/starter/program/target/deploy/solclash_policy.so",
         );
 
         harness = await HarnessClient.start(

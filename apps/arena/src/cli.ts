@@ -8,6 +8,16 @@ import {
   type ArenaConfigResolved,
 } from "@solclash/simulator";
 import { loadTapeWithMeta } from "@solclash/data";
+import {
+  loadAgentManifests,
+  validateAgentManifestsForArena,
+} from "@solclash/agents";
+import {
+  getArenaDefinition,
+  validateSupportedBaselines,
+  validateWorkspaceForArena,
+  type ValidatedWorkspace,
+} from "@solclash/arenas";
 import { resolveAgentsWithErrors } from "./agents.js";
 import { executeRound } from "./runner.js";
 import { writeRoundMeta } from "./logger.js";
@@ -17,7 +27,11 @@ import { join } from "node:path";
 import { readdir, stat } from "node:fs/promises";
 import { $ } from "bun";
 import { resolveScoringWeightsPath } from "./weights.js";
-import { resolveOnchainWorkspace, type OnchainWorkspace } from "./workspace.js";
+
+interface OnchainAgent {
+  id: string;
+  workspace: ValidatedWorkspace;
+}
 
 // Avoid throwing for missing files so freshness checks can fall back to "build".
 async function statIfExists(path: string) {
@@ -98,7 +112,6 @@ async function main() {
       data: { type: "string", short: "d" },
       output: { type: "string", short: "o", default: "./output" },
       agent: { type: "string", short: "a", multiple: true, default: [] },
-      agents: { type: "string", multiple: true, default: [] },
       harness: { type: "string" },
     },
     strict: true,
@@ -107,7 +120,7 @@ async function main() {
 
   if (!values.config) {
     console.error(
-      "Usage: solclash-arena --config <path> [--data <path>] [--output <dir>] [--agent <path>...] [--agents <path>...] [--harness <path>]",
+      "Usage: solclash-arena --config <path> [--data <path>] [--output <dir>] [--agent <manifest_path>...] [--harness <path>]",
     );
     process.exit(1);
   }
@@ -120,6 +133,11 @@ async function main() {
     process.exit(1);
   }
   const config = configResult.data;
+
+  // Ensure this arena exists and baseline selections are valid.
+  getArenaDefinition(config.arena_id);
+  validateSupportedBaselines(config.arena_id, config.baseline_bots_enabled);
+
   let scoringWeights = config.scoring_weights;
   if (!scoringWeights) {
     // Resolve scoring weights now so runtime always sees concrete weights.
@@ -220,19 +238,32 @@ async function main() {
 
   console.log(`Loaded ${bars.length} bars`);
 
-  // Resolve on-chain workspaces. Custom agents must be Rust workspaces.
-  const allAgentPaths = [
-    ...(values.agent as string[]),
-    ...(values.agents as string[]),
-  ];
-  const onchainWorkspaces: OnchainWorkspace[] = [];
-  for (const p of allAgentPaths) {
+  const agentManifestPaths = values.agent as string[];
+  const agentManifests = await loadAgentManifests(agentManifestPaths);
+  validateAgentManifestsForArena(agentManifests, finalConfig.arena_id);
+
+  const baselineIds = new Set(finalConfig.baseline_bots_enabled);
+  for (const manifest of agentManifests) {
+    if (baselineIds.has(manifest.id)) {
+      throw new Error(
+        `Agent id collides with builtin baseline: ${manifest.id}`,
+      );
+    }
+  }
+
+  const onchainAgents: OnchainAgent[] = [];
+  for (const manifest of agentManifests) {
     try {
-      const workspace = await resolveOnchainWorkspace(p);
-      onchainWorkspaces.push(workspace);
+      const workspace = await validateWorkspaceForArena(
+        finalConfig.arena_id,
+        manifest.workspace_path,
+      );
+      onchainAgents.push({ id: manifest.id, workspace });
     } catch (err) {
       const message = err instanceof Error ? err.message : "invalid workspace";
-      throw new Error(`Invalid on-chain agent workspace '${p}': ${message}`);
+      throw new Error(
+        `Invalid workspace for agent '${manifest.id}' at ${manifest.workspace_path}: ${message}`,
+      );
     }
   }
 
@@ -243,32 +274,31 @@ async function main() {
   let harness: HarnessClient | null = null;
   const invalidAgents: Record<string, string> = { ...invalidBaselineAgents };
 
-  if (onchainWorkspaces.length > 0) {
+  if (onchainAgents.length > 0) {
     const harnessPath =
       values.harness ?? "./apps/arena-harness/target/release/solclash-harness";
     const programs: HarnessProgram[] = [];
 
-    for (const workspace of onchainWorkspaces) {
-      const { programDir, agentId } = workspace;
+    for (const agent of onchainAgents) {
+      const { program_dir, artifact_path } = agent.workspace;
       try {
-        const needsBuild = await shouldBuildOnchain(programDir);
+        const needsBuild = await shouldBuildOnchain(program_dir);
         if (needsBuild) {
           // Build on-chain agents locally; failures should not abort the round.
-          await $`cargo build-sbf`.cwd(programDir);
+          await $`cargo build-sbf`.cwd(program_dir);
         } else {
-          console.log(`Skipping build for ${agentId}: artifact is fresh`);
+          console.log(`Skipping build for ${agent.id}: artifact is fresh`);
         }
       } catch (_err) {
-        invalidAgents[agentId] = "build_failed";
+        invalidAgents[agent.id] = "build_failed";
         continue;
       }
 
-      const soPath = join(programDir, "target", "deploy", "solclash_policy.so");
-      if (!(await Bun.file(soPath).exists())) {
-        invalidAgents[agentId] = "missing_artifact";
+      if (!(await Bun.file(artifact_path).exists())) {
+        invalidAgents[agent.id] = "missing_artifact";
         continue;
       }
-      programs.push({ id: agentId, so_path: soPath });
+      programs.push({ id: agent.id, so_path: artifact_path });
     }
 
     if (programs.length > 0) {

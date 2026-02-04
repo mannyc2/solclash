@@ -9,7 +9,7 @@ bun run apps/arena/src/cli.ts \
   --config arena-config.json \
   --data bars.json \
   --output ./output \
-  --agent ./starter
+  --agent ./agents/team-a/solclash-agent.json
 ```
 
 Or via the root script:
@@ -25,17 +25,36 @@ bun run arena -- --config arena-config.json --data bars.json
 | `--config`  | `-c`  | Yes      | Path to arena config JSON (validated with Zod)                                             |
 | `--data`    | `-d`  | No       | Path to bar data (`.json` array or `.jsonl`). Optional if `tape_source` is set in config.  |
 | `--output`  | `-o`  | No       | Output directory (default: `./output`)                                                     |
-| `--agent`   | `-a`  | No       | Paths to custom Rust workspaces (repeatable)                                               |
-| `--agents`  |       | No       | Alias for `--agent` (repeatable)                                                           |
+| `--agent`   | `-a`  | No       | Paths to agent manifest JSON files (`solclash-agent.json`, repeatable)                     |
 | `--harness` |       | No       | Path to the harness binary (default: `apps/arena-harness/target/release/solclash-harness`) |
 
 Baseline agents listed in `config.baseline_bots_enabled` are loaded automatically.
+Custom agents come from manifest files.
 
 This CLI is also invoked inside the tournament arena container (`solclash-arena`).
 
 ### Scoring Weights
 
 The `scoring_weights_reference` config field supports bare preset IDs (e.g. `"v1"`) which resolve to `docs/scoring-weights/v1.json`, as well as explicit paths. If `scoring_weights` is provided inline, the reference is ignored.
+
+### Agent Manifest
+
+Each `--agent` entry must point to a JSON manifest:
+
+```json
+{
+  "id": "team-a",
+  "arena_id": "btc-perp-v1",
+  "provider": "anthropic",
+  "workspace": "./workspace",
+  "model": "claude-sonnet-4-20250514"
+}
+```
+
+- `id`, `arena_id`, `provider`, and `workspace` are required.
+- `workspace` is resolved relative to the manifest file path.
+- `arena_id` must match `arena-config.json` `arena_id`.
+- `provider` is required for tournament edit-phase routing.
 
 ## Output
 
@@ -72,18 +91,36 @@ Run Rust policy programs compiled to SBF and executed via the harness:
 
 ```sh
 bun run arena -- --config arena-config.json --data bars.json \
-  --agent ./agent-a --agent ./agent-b \
+  --agent ./agents/agent-a/solclash-agent.json \
+  --agent ./agents/agent-b/solclash-agent.json \
   --harness ./apps/arena-harness/target/release/solclash-harness
 ```
 
-Each on-chain agent directory must contain `program/` and build with
-`cargo build-sbf`, producing `program/target/deploy/solclash_policy.so`.
+Each manifest workspace must satisfy the selected arena contract:
 
-Invalid workspace paths fail fast (for example, missing `program/` or
-`program/Cargo.toml`).
+- include `program/` and `program/src/`
+- include `program/Cargo.toml`
+- build with `cargo build-sbf`
+- produce `program/target/deploy/solclash_policy.so`
+
+Invalid manifest/workspace paths fail fast.
 
 Validation failures are recorded in `round_meta.json` under `invalid_agents`,
 and invalid agents receive a score of 0 for the round.
+
+## Migration (Breaking)
+
+Old:
+
+```sh
+--agent ./workspace-dir
+```
+
+New:
+
+```sh
+--agent ./path/to/solclash-agent.json
+```
 
 ## Tests
 

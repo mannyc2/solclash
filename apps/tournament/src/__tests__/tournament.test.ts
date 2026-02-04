@@ -280,13 +280,11 @@ describe("tournament e2e", () => {
           id: "AGENT_A",
           provider: "anthropic",
           workspace: workspaceA,
-          entrypoint: "agent.js",
         },
         {
           id: "AGENT_B",
           provider: "anthropic",
           workspace: workspaceB,
-          entrypoint: "agent.js",
         },
       ],
       config: editConfig,
@@ -336,7 +334,7 @@ describe("tournament e2e", () => {
       requireValue(getBuiltinAgent("FLAT"), "FLAT agent"),
     ];
     const agentSources: AgentSource[] = [
-      { id: "DUMMY", provider: "anthropic", workspace, entrypoint: "agent.js" },
+      { id: "DUMMY", provider: "anthropic", workspace },
     ];
 
     const outputDir = await makeTmpDir();

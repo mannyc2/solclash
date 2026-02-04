@@ -6,6 +6,8 @@ COPY package.json bun.lock tsconfig.json tsconfig.base.json ./
 COPY apps/arena/package.json apps/arena/package.json
 COPY apps/arena-harness/Cargo.toml apps/arena-harness/Cargo.toml
 COPY apps/tournament/package.json apps/tournament/package.json
+COPY packages/agents/package.json packages/agents/package.json
+COPY packages/arenas/package.json packages/arenas/package.json
 COPY packages/data/package.json packages/data/package.json
 COPY packages/simulator/package.json packages/simulator/package.json
 
@@ -22,7 +24,6 @@ COPY apps ./apps
 COPY packages ./packages
 COPY docs ./docs
 COPY arena-config.json ./
-COPY starter ./starter
 
 RUN --mount=type=cache,target=/root/.cargo/registry \
   --mount=type=cache,target=/root/.cargo/git \

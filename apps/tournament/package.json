@@ -8,7 +8,9 @@
     "solclash-tournament": "src/cli.ts"
   },
   "dependencies": {
+    "@solclash/agents": "workspace:*",
     "@solclash/arena": "workspace:*",
+    "@solclash/arenas": "workspace:*",
     "@solclash/data": "workspace:*",
     "@solclash/simulator": "workspace:*",
     "zod": "^3.24.0"

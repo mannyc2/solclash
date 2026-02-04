@@ -34,7 +34,7 @@ describe("arena cli invalid agents", () => {
     }
   });
 
-  test("fails fast when a custom agent path is not a valid on-chain workspace", async () => {
+  test("fails fast when --agent is not a valid manifest file", async () => {
     const tmpDir = await makeTmpDir();
     const outDir = join(tmpDir, "out");
     const badAgentDir = join(tmpDir, "bad-agent");
@@ -47,7 +47,7 @@ describe("arena cli invalid agents", () => {
       configPath,
       JSON.stringify(
         {
-          arena_id: "cli-invalid-test",
+          arena_id: "btc-perp-v1",
           symbol: "BTC-PERP",
           base_mint: "BTC",
           quote_mint: "USDC",
@@ -105,8 +105,7 @@ describe("arena cli invalid agents", () => {
     const exitCode = await proc.exited;
 
     expect(exitCode).not.toBe(0);
-    expect(stderr).toContain("Invalid on-chain agent workspace");
-    expect(stderr).toContain("missing program/ directory");
+    expect(stderr).toContain("Invalid agent manifest");
     expect(await Bun.file(join(outDir, "round_meta.json")).exists()).toBe(
       false,
     );

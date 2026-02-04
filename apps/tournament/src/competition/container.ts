@@ -60,7 +60,7 @@ export async function runCompetitionInContainer(
       `${containerInputsDir}/bars.json`,
     );
 
-    const workspaceAgents: string[] = [];
+    const workspaceAgentManifests: string[] = [];
 
     for (const agent of agentSources) {
       if (agent.provider === "builtin") {
@@ -72,12 +72,24 @@ export async function runCompetitionInContainer(
       const containerRoot = `${containerAgentsDir}/${agent.id}`;
       await runtime.exec(container, ["mkdir", "-p", containerRoot]);
       await runtime.copyTo(container, `${agent.workspace}/.`, containerRoot);
-      if (agent.entrypoint) {
-        throw new Error(
-          `Entrypoint-based agents are not supported in Rust-only mode (${agent.id})`,
-        );
-      }
-      workspaceAgents.push(containerRoot);
+      const manifestPath = `${containerInputsDir}/agent-${agent.id}.json`;
+      const manifestHostPath = join(tempDir, `agent-${agent.id}.json`);
+      await writeFile(
+        manifestHostPath,
+        JSON.stringify(
+          {
+            id: agent.id,
+            arena_id: config.arena_id,
+            provider: agent.provider,
+            workspace: containerRoot,
+            ...(agent.model ? { model: agent.model } : {}),
+          },
+          null,
+          2,
+        ),
+      );
+      await runtime.copyTo(container, manifestHostPath, manifestPath);
+      workspaceAgentManifests.push(manifestPath);
     }
 
     const args = [
@@ -92,10 +104,10 @@ export async function runCompetitionInContainer(
       containerRoundDir,
     ];
 
-    for (const dir of workspaceAgents) {
-      args.push("--agent", dir);
+    for (const manifestPath of workspaceAgentManifests) {
+      args.push("--agent", manifestPath);
     }
-    if (workspaceAgents.length > 0) {
+    if (workspaceAgentManifests.length > 0) {
       args.push("--harness", "/usr/local/bin/solclash-harness");
     }
 

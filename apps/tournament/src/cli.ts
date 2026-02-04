@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { parseArgs } from "util";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { cp, mkdir, rm } from "node:fs/promises";
 import {
   ArenaConfigSchema,
@@ -9,14 +9,19 @@ import {
 } from "@solclash/simulator";
 import { loadTapeWithMeta } from "@solclash/data";
 import {
-  resolveAgentsWithErrors,
-  resolveOnchainWorkspace,
-  type OnchainWorkspace,
-} from "@solclash/arena";
+  loadAgentManifests,
+  validateAgentManifestsForArena,
+} from "@solclash/agents";
+import {
+  getArenaDefinition,
+  validateSupportedBaselines,
+  validateWorkspaceForArena,
+} from "@solclash/arenas";
+import { resolveAgentsWithErrors } from "@solclash/arena";
 import { resolveScoringWeightsPath } from "../../arena/src/weights.js";
 import { runTournament } from "./runner.js";
 import { buildEditConfig } from "./edit/config.js";
-import type { AgentSource, AgentProvider } from "./runner.js";
+import type { AgentSource } from "./runner.js";
 import { DockerRuntime } from "./runtime/docker.js";
 
 async function main() {
@@ -28,8 +33,6 @@ async function main() {
       output: { type: "string", short: "o", default: "./logs" },
       rounds: { type: "string", short: "r", default: "1" },
       agent: { type: "string", short: "a", multiple: true, default: [] },
-      provider: { type: "string", default: "anthropic" },
-      harness: { type: "string" },
       "no-edit": { type: "boolean", default: false },
       "edit-prompt": { type: "string", default: "default" },
       "edit-max-turns": { type: "string", default: "250" },
@@ -45,23 +48,9 @@ async function main() {
 
   if (!values.config) {
     console.error(
-      "Usage: solclash-tournament --config <path> [--data <path>] [--rounds <n>] [--output <dir>] [--agent <path>...] [--provider <provider>] [--no-edit] [--edit-prompt <id|path>] [--edit-max-turns <n>] [--edit-concurrency <n>] [--edit-timeout-ms <n>] [--edit-network-enabled] [--edit-network-allowlist <host>...]",
+      "Usage: solclash-tournament --config <path> [--data <path>] [--rounds <n>] [--output <dir>] [--agent <manifest_path>...] [--no-edit] [--edit-prompt <id|path>] [--edit-max-turns <n>] [--edit-concurrency <n>] [--edit-timeout-ms <n>] [--edit-network-enabled] [--edit-network-allowlist <host>...]",
     );
     process.exit(1);
-  }
-
-  const VALID_PROVIDERS: AgentProvider[] = [
-    "anthropic",
-    "openai",
-    "google",
-    "glm",
-    "kimi",
-  ];
-  const defaultProvider = values.provider as AgentProvider;
-  if (!VALID_PROVIDERS.includes(defaultProvider)) {
-    throw new Error(
-      `Invalid --provider value: ${values.provider}. Must be one of: ${VALID_PROVIDERS.join(", ")}`,
-    );
   }
 
   const rounds = Math.max(1, Number(values.rounds));
@@ -100,6 +89,10 @@ async function main() {
     process.exit(1);
   }
   const config = configResult.data;
+
+  // Ensure this arena exists and baseline selections are valid.
+  getArenaDefinition(config.arena_id);
+  validateSupportedBaselines(config.arena_id, config.baseline_bots_enabled);
 
   let scoringWeights = config.scoring_weights;
   if (!scoringWeights) {
@@ -196,16 +189,32 @@ async function main() {
 
   console.log(`Loaded ${bars.length} bars`);
 
-  // Resolve custom on-chain workspaces.
-  const agentPaths = values.agent as string[];
-  const onchainWorkspaces: OnchainWorkspace[] = [];
-  for (const p of agentPaths) {
+  const agentManifestPaths = values.agent as string[];
+  const agentManifests = await loadAgentManifests(agentManifestPaths);
+  validateAgentManifestsForArena(agentManifests, finalConfig.arena_id);
+
+  const baselineIds = new Set(finalConfig.baseline_bots_enabled);
+  for (const manifest of agentManifests) {
+    if (baselineIds.has(manifest.id)) {
+      throw new Error(
+        `Agent id collides with builtin baseline: ${manifest.id}`,
+      );
+    }
+  }
+
+  const validatedWorkspaces = new Map<string, string>();
+  for (const manifest of agentManifests) {
     try {
-      const workspace = await resolveOnchainWorkspace(p);
-      onchainWorkspaces.push(workspace);
+      const workspace = await validateWorkspaceForArena(
+        finalConfig.arena_id,
+        manifest.workspace_path,
+      );
+      validatedWorkspaces.set(manifest.id, workspace.root_dir);
     } catch (err) {
       const message = err instanceof Error ? err.message : "invalid workspace";
-      throw new Error(`Invalid on-chain agent workspace '${p}': ${message}`);
+      throw new Error(
+        `Invalid workspace for agent '${manifest.id}' at ${manifest.workspace_path}: ${message}`,
+      );
     }
   }
 
@@ -214,12 +223,10 @@ async function main() {
     [],
   );
 
-  console.log(`Agents: ${agents.map((a) => a.id).join(", ")}`);
-
   const outputRoot = resolve(values.output);
 
-  // Copy agent workspaces into <outputRoot>/workspaces/ so the original
-  // directories (e.g. starter/) stay immutable across tournament runs.
+  // Copy agent workspaces into <outputRoot>/workspaces/ so the source
+  // directories stay immutable across tournament runs.
   const workspacesRoot = join(outputRoot, "workspaces");
   await mkdir(workspacesRoot, { recursive: true });
 
@@ -230,18 +237,24 @@ async function main() {
 
   const injectTargets: string[] = [];
 
-  for (const workspace of onchainWorkspaces) {
-    const id = basename(workspace.rootDir);
-    const workingCopy = join(workspacesRoot, id);
+  for (const manifest of agentManifests) {
+    const workspaceRoot = validatedWorkspaces.get(manifest.id);
+    if (!workspaceRoot) {
+      throw new Error(`Missing validated workspace for agent '${manifest.id}'`);
+    }
+    const workingCopy = join(workspacesRoot, manifest.id);
     await rm(workingCopy, { recursive: true, force: true });
-    await cp(workspace.rootDir, workingCopy, { recursive: true });
+    await cp(workspaceRoot, workingCopy, { recursive: true });
     agentSources.push({
-      id,
-      provider: defaultProvider,
+      id: manifest.id,
+      provider: manifest.provider,
       workspace: workingCopy,
+      model: manifest.model,
     });
     injectTargets.push(workingCopy);
   }
+
+  console.log(`Agents: ${agentSources.map((agent) => agent.id).join(", ")}`);
 
   const editEnabled = !values["no-edit"];
   const editConfig = buildEditConfig({

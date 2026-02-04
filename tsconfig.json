@@ -2,6 +2,8 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "paths": {
+      "@solclash/agents": ["./packages/agents/src"],
+      "@solclash/arenas": ["./packages/arenas/src"],
       "@solclash/simulator": ["./packages/simulator/src"],
       "@solclash/data": ["./packages/data/src"]
     }

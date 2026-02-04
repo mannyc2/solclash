@@ -1,0 +1,41 @@
+{
+  "arena_id": "btc-perp-v1",
+  "symbol": "BTC-PERP",
+  "base_mint": "BTC",
+  "quote_mint": "USDC",
+  "bar_interval_seconds": 60,
+  "price_scale": 1000000,
+  "volume_scale": 1000000,
+  "tape_source": {
+    "type": "historical",
+    "dataset_id": "btc-perp-1m",
+    "bar_interval_seconds": 60
+  },
+  "window_duration_bars": 720,
+  "max_window_overlap_pct": 0,
+  "number_of_windows_per_round": 5,
+  "window_sampling": {
+    "mode": "sequential",
+    "stress_count": 1,
+    "buckets": { "volatility": 3, "trend": 3, "volume": 3 }
+  },
+  "lookback_len": 120,
+  "slippage_bps": 5,
+  "impact_k_bps": 5,
+  "impact_cap_bps": 50,
+  "liquidity_multiplier": 1.0,
+  "min_liquidity": 1,
+  "taker_fee_bps": 5,
+  "initial_margin_bps": 1000,
+  "maintenance_margin_bps": 500,
+  "max_leverage_bps": 10000,
+  "liquidation_fee_bps": 50,
+  "funding_rate_bps_per_bar": 0,
+  "initial_balances": [{ "mint": "USDC", "amount": 10000 }],
+  "scoring_weights": {
+    "pnl": 1.0,
+    "drawdown": -0.5,
+    "exposure": -0.1
+  },
+  "baseline_bots_enabled": ["BUY_AND_HOLD", "FLAT"]
+}

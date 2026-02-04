@@ -86,10 +86,7 @@ async function runEditSession(
   const providerDefaults =
     agent.provider !== "builtin"
       ? getProviderEnvDefaults(agent.provider)
-      : {
-          api_key_env: "ANTHROPIC_API_KEY",
-          base_url_env: "ANTHROPIC_BASE_URL",
-        };
+      : getProviderEnvDefaults("anthropic");
   const env: Record<string, string> = {};
   const apiKey = process.env[providerDefaults.api_key_env];
   if (apiKey) env[providerDefaults.api_key_env] = apiKey;
@@ -147,7 +144,7 @@ async function runEditSession(
       network_policy: config.network_policy,
       settings_sources: config.settings_sources,
       timeout_ms: config.timeout_ms,
-      model: config.model,
+      model: config.model ?? agent.model,
       prompt_ref: prompt.ref,
       prompt_sha256: prompt.sha256,
       prompt_path: prompt.path,

@@ -5,7 +5,12 @@ Multi-round tournament orchestrator. Runs a two-phase loop (edit + competition),
 ## Usage
 
 ```sh
-solclash-tournament --config arena-config.json --data bars.json --rounds 5 --output ./logs --agent ./starter
+solclash-tournament \
+  --config arena-config.json \
+  --data bars.json \
+  --rounds 5 \
+  --output ./logs \
+  --agent ./agents/team-a/solclash-agent.json
 ```
 
 Or via the root script:
@@ -26,7 +31,19 @@ Generate a local bars file:
 bun run data generate --out ./tmp/bars.json --count 4000
 ```
 
-Run a single round with Rust agent workspaces:
+Create agent manifests:
+
+```json
+{
+  "id": "team-a",
+  "arena_id": "btc-perp-v1",
+  "provider": "anthropic",
+  "workspace": "./workspace",
+  "model": "claude-sonnet-4-20250514"
+}
+```
+
+Run one round:
 
 ```sh
 export ANTHROPIC_API_KEY=your_key_here
@@ -36,8 +53,7 @@ bun run tournament -- \
   --data ./tmp/bars.json \
   --rounds 1 \
   --output ./logs \
-  --agent ./starter \
-  --provider anthropic \
+  --agent ./agents/team-a/solclash-agent.json \
   --edit-max-turns 5
 ```
 
@@ -45,28 +61,34 @@ If you want competition-only, add `--no-edit`.
 
 ### Options
 
-| Flag                       | Short | Required | Default     | Description                                                                                    |
-| -------------------------- | ----- | -------- | ----------- | ---------------------------------------------------------------------------------------------- |
-| `--config`                 | `-c`  | Yes      | --          | Path to arena config JSON (validated with Zod)                                                 |
-| `--data`                   | `-d`  | No       | --          | Path to bar data file. Optional if `tape_source` is set in config.                             |
-| `--rounds`                 | `-r`  | No       | `1`         | Number of tournament rounds                                                                    |
-| `--output`                 | `-o`  | No       | `./logs`    | Output directory for tournament logs                                                           |
-| `--agent`                  | `-a`  | No       | `[]`        | Paths to Rust agent workspaces (repeatable). Each workspace must contain `program/Cargo.toml`. |
-| `--provider`               |       | No       | `anthropic` | LLM provider for the edit phase (`anthropic`, `openai`, `google`, `glm`, `kimi`)               |
-| `--no-edit`                |       | No       | `false`     | Disable edit phase (competition only)                                                          |
-| `--edit-prompt`            |       | No       | `default`   | Edit prompt id (`default`) or explicit file path                                               |
-| `--edit-max-turns`         |       | No       | `30`        | Max edit turns per agent                                                                       |
-| `--edit-concurrency`       |       | No       | `4`         | Max concurrent edit sessions                                                                   |
-| `--edit-timeout-ms`        |       | No       | --          | Wall-clock timeout for edit sessions                                                           |
-| `--edit-network-enabled`   |       | No       | `false`     | Allow network tools during edit (still allowlisted)                                            |
-| `--edit-network-allowlist` |       | No       | `[]`        | Allowed hosts for WebFetch (repeatable)                                                        |
-| `--edit-model`             |       | No       | --          | Override model name for the edit harness                                                       |
+| Flag                       | Short | Required | Default   | Description                                                              |
+| -------------------------- | ----- | -------- | --------- | ------------------------------------------------------------------------ |
+| `--config`                 | `-c`  | Yes      | --        | Path to arena config JSON (validated with Zod). Must contain `arena_id`. |
+| `--data`                   | `-d`  | No       | --        | Path to bar data file. Optional if `tape_source` is set in config.       |
+| `--rounds`                 | `-r`  | No       | `1`       | Number of tournament rounds.                                             |
+| `--output`                 | `-o`  | No       | `./logs`  | Output directory for tournament logs.                                    |
+| `--agent`                  | `-a`  | No       | `[]`      | Paths to agent manifest JSON files (repeatable).                         |
+| `--no-edit`                |       | No       | `false`   | Disable edit phase (competition only).                                   |
+| `--edit-prompt`            |       | No       | `default` | Edit prompt id (`default`) or explicit file path.                        |
+| `--edit-max-turns`         |       | No       | `250`     | Max edit turns per agent.                                                |
+| `--edit-concurrency`       |       | No       | `4`       | Max concurrent edit sessions.                                            |
+| `--edit-timeout-ms`        |       | No       | --        | Wall-clock timeout for edit sessions.                                    |
+| `--edit-network-enabled`   |       | No       | `false`   | Allow network tools during edit (still allowlisted).                     |
+| `--edit-network-allowlist` |       | No       | `[]`      | Allowed hosts for WebFetch (repeatable).                                 |
+| `--edit-model`             |       | No       | --        | Override model name for all agents during the edit phase.                |
 
-### Agent Workspace Validation
+### Agent Manifest Validation
 
-- Custom agents must be workspace directories.
-- Each workspace must include `program/` and `program/Cargo.toml`.
-- Invalid workspace paths fail fast before the round starts.
+- Manifest schema requires:
+  - `id: string`
+  - `arena_id: string`
+  - `provider: anthropic | openai | google | glm | kimi`
+  - `workspace: string`
+  - optional `model: string`
+- `workspace` is resolved relative to the manifest path.
+- `manifest.arena_id` must match `config.arena_id`.
+- Agent IDs must be unique (and cannot collide with enabled baseline IDs).
+- Workspaces are validated against arena requirements (`program/`, `program/src/`, `program/Cargo.toml`).
 
 ## Output
 
@@ -96,9 +118,9 @@ If you want competition-only, add `--no-edit`.
 
 ## Edit Phase (Containerized)
 
-The edit phase runs each agent in a dedicated container (`solclash-agent`) and copies the workspace back only on success. The prompt is deterministic per tournament and comes from the built-in `default` or an explicit file path.
+The edit phase runs each non-builtin agent in a dedicated container (`solclash-agent`) and copies the workspace back only on success. The prompt is deterministic per tournament and comes from the built-in `default` prompt or an explicit file path.
 
-API keys are forwarded into the agent container based on the configured `--provider`. Each provider requires specific environment variables:
+API keys are forwarded into each agent container based on the agent manifest `provider`.
 
 | Provider    | API Key Env (required) | Base URL Env (optional) |
 | ----------- | ---------------------- | ----------------------- |
@@ -108,34 +130,28 @@ API keys are forwarded into the agent container based on the configured `--provi
 | `glm`       | `GLM_API_KEY`          | `GLM_BASE_URL`          |
 | `kimi`      | `KIMI_API_KEY`         | `KIMI_BASE_URL`         |
 
-The system validates that required environment variables are set before starting the tournament. If missing, you'll see a clear error message:
-
-```
-Missing required environment variables for agents:
-
-Agent "starter" (provider: anthropic) requires:
-  - ANTHROPIC_API_KEY
-  - ANTHROPIC_BASE_URL (optional)
-
-Set these in your .env file or environment before running.
-```
-
-Set these variables in your shell or `.env` file:
+Provider-vs-provider runs are done by passing multiple manifests with different `provider` values:
 
 ```sh
-export ANTHROPIC_API_KEY=your_key_here
-export ANTHROPIC_BASE_URL=https://api.anthropic.com  # optional
+bun run tournament -- \
+  --config ./arena-config.json \
+  --data ./tmp/bars.json \
+  --rounds 1 \
+  --agent ./agents/anthropic/solclash-agent.json \
+  --agent ./agents/openai/solclash-agent.json
 ```
+
+The system validates required environment variables before starting the edit phase.
 
 ## Log Injection
 
-When `--agent` paths are provided, the full round log folder is copied into each agent's workspace after every round:
+When custom `--agent` manifests are provided, the full round log folder is copied into each agent workspace after every round:
 
 ```
-<agent-dir>/logs/rounds/<round_num>/
+<agent-workspace>/logs/rounds/<round_num>/
 ```
 
-This allows agents to inspect their own performance and other agents' results before subsequent rounds.
+This lets agents inspect their own and peer results before subsequent rounds.
 
 ## Docker Images
 
@@ -151,10 +167,24 @@ Build them with:
 ./scripts/build-images.sh
 ```
 
+## Migration (Breaking)
+
+Old:
+
+```sh
+--agent ./workspace --provider anthropic
+```
+
+New:
+
+```sh
+--agent ./path/to/solclash-agent.json
+```
+
+Provider now lives in the agent manifest and `--provider` is removed.
+
 ## Tests
 
 ```sh
 bun test apps/tournament/
 ```
-
-Tests cover multi-round tournaments with log injection, single-round runs without injection, and score determinism.
