@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { buildWindows, sliceBars } from "../windowing.js";
+import { buildWindows, sliceBars } from "../window_sampling.js";
 import type { OhlcvBar } from "@solclash/simulator";
 
 function makeBars(n: number): OhlcvBar[] {

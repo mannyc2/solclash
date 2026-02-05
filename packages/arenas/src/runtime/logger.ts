@@ -1,6 +1,7 @@
-import { $, type FileSink } from "bun";
+import { type FileSink } from "bun";
 import type { WindowAgentResult } from "@solclash/simulator";
 import type { WindowSummary, RoundMetrics } from "@solclash/simulator";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 function toJsonl(entries: unknown[]): string {
@@ -38,7 +39,7 @@ export async function writeWindowLogs(
   result: WindowAgentResult,
 ): Promise<void> {
   const dir = join(outputDir, agentId);
-  await $`mkdir -p ${dir}`.quiet();
+  await mkdir(dir, { recursive: true });
 
   if (result.policy_log.length > 0) {
     appendJsonl(join(dir, "policy_log.jsonl"), result.policy_log);
@@ -58,7 +59,7 @@ export async function writeSummary(
   outputDir: string,
   summaries: WindowSummary[],
 ): Promise<void> {
-  await $`mkdir -p ${outputDir}`.quiet();
+  await mkdir(outputDir, { recursive: true });
   await Bun.write(
     join(outputDir, "summary.json"),
     JSON.stringify(summaries, null, 2),
@@ -69,7 +70,7 @@ export async function writeRoundResults(
   outputDir: string,
   results: Record<string, RoundMetrics>,
 ): Promise<void> {
-  await $`mkdir -p ${outputDir}`.quiet();
+  await mkdir(outputDir, { recursive: true });
   await Bun.write(
     join(outputDir, "round_results.json"),
     JSON.stringify(results, null, 2),
@@ -89,7 +90,7 @@ export async function writeRoundMeta(
   meta: RoundMeta,
 ): Promise<void> {
   // round_meta.json is the canonical artifact for winner, invalids, and timestamps.
-  await $`mkdir -p ${outputDir}`.quiet();
+  await mkdir(outputDir, { recursive: true });
   await Bun.write(
     join(outputDir, "round_meta.json"),
     JSON.stringify(meta, null, 2),

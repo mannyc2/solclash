@@ -5,17 +5,6 @@ export interface TapeWithMeta {
   bars: OhlcvBar[];
 }
 
-export async function loadBarsFromJson(filePath: string): Promise<OhlcvBar[]> {
-  const data: unknown = await Bun.file(filePath).json();
-  const tape = parseJsonTapeData(data, filePath);
-  return tape.bars;
-}
-
-export async function loadBarsFromJsonl(filePath: string): Promise<OhlcvBar[]> {
-  const tape = await loadTapeFromJsonl(filePath);
-  return tape.bars;
-}
-
 export async function loadTapeFromJson(
   filePath: string,
 ): Promise<TapeWithMeta> {

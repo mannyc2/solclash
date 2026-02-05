@@ -9,4 +9,4 @@ PLATFORM="${SOLCLASH_PLATFORM:-linux/amd64}"
 
 docker build --platform "$PLATFORM" -t solclash-base -f docker/base/Dockerfile .
 docker build --platform "$PLATFORM" -t solclash-agent -f apps/tournament/docker/agent/Dockerfile .
-docker build --platform "$PLATFORM" -t solclash-arena -f apps/arena/docker/Dockerfile .
+docker build --platform "$PLATFORM" -t solclash-arena -f apps/tournament/docker/arena/Dockerfile .

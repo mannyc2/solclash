@@ -1,8 +1,23 @@
+/**
+ * Run one competition round inside a container.
+ *
+ * Why containers? Workspace agents ship Solana programs that get compiled
+ * and loaded into the Rust harness via BPF. Running this inside Docker
+ * prevents a malicious program from escaping the sandbox.
+ *
+ * Flow:
+ *   1. Serialize the arena config + OHLCV bars to temp files on the host.
+ *   2. Create a container from the arena image.
+ *   3. Copy config, bars, and each agent's workspace into the container.
+ *   4. Invoke the tournament CLI in --local mode inside the container.
+ *   5. Copy the round_meta.json results back to the host.
+ *   6. Tear down the container.
+ */
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import type { ArenaConfigResolved, OhlcvBar } from "@solclash/simulator";
-import type { RoundMeta } from "@solclash/arena";
+import type { RoundMeta } from "@solclash/arenas";
 import type { AgentSource } from "../runner.js";
 import type { ContainerRuntime } from "../runtime/container.js";
 
@@ -37,6 +52,7 @@ export async function runCompetitionInContainer(
 
   console.log(`\nCompetition Phase: Running arena in container...`);
 
+  const containerOutputRoot = "/logs";
   const containerRoundDir = `/logs/rounds/${round}`;
   const containerInputsDir = "/inputs";
   const containerAgentsDir = "/opt/solclash/agents";
@@ -46,7 +62,7 @@ export async function runCompetitionInContainer(
       "mkdir",
       "-p",
       containerInputsDir,
-      containerRoundDir,
+      containerOutputRoot,
       containerAgentsDir,
     ]);
     await runtime.copyTo(
@@ -95,13 +111,17 @@ export async function runCompetitionInContainer(
     const args = [
       "bun",
       "run",
-      "apps/arena/src/cli.ts",
+      "apps/tournament/src/cli.ts",
+      "--local",
+      "--no-edit",
+      "--rounds",
+      "1",
       "--config",
       `${containerInputsDir}/arena-config.json`,
       "--data",
       `${containerInputsDir}/bars.json`,
       "--output",
-      containerRoundDir,
+      containerOutputRoot,
     ];
 
     for (const manifestPath of workspaceAgentManifests) {

@@ -9,7 +9,6 @@
   },
   "dependencies": {
     "@solclash/agents": "workspace:*",
-    "@solclash/arena": "workspace:*",
     "@solclash/arenas": "workspace:*",
     "@solclash/data": "workspace:*",
     "@solclash/simulator": "workspace:*",

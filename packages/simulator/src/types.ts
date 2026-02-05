@@ -72,7 +72,7 @@ export interface AgentPolicy {
 
 // --- Config ---
 
-export const BalanceEntrySchema = z.object({
+const BalanceEntrySchema = z.object({
   mint: z.string(),
   amount: z.number().nonnegative(),
 });
@@ -90,19 +90,14 @@ const HistoricalTapeSourceBaseSchema = z.object({
   bar_interval_seconds: z.number().int().positive().optional(),
 });
 
-export const HistoricalTapeSourceSchema = HistoricalTapeSourceBaseSchema.refine(
-  (v) => v.dataset_id || v.path,
-  { message: "historical tape_source requires dataset_id or path" },
-);
-
-export const SyntheticTapeSourceSchema = z.object({
+const SyntheticTapeSourceSchema = z.object({
   type: z.literal("synthetic"),
   generator_id: z.string(),
   seed: z.number().int(),
   params: z.record(z.any()).optional().default({}),
 });
 
-export const TapeSourceSchema = z
+const TapeSourceSchema = z
   .discriminatedUnion("type", [
     HistoricalTapeSourceBaseSchema,
     SyntheticTapeSourceSchema,
@@ -116,7 +111,7 @@ export const TapeSourceSchema = z
     }
   });
 
-export const WindowSamplingSchema = z
+const WindowSamplingSchema = z
   .object({
     // Defaults keep configs compact while still deterministic across runs.
     mode: z.enum(["sequential", "stratified"]).default("sequential"),
@@ -160,9 +155,7 @@ export const ArenaConfigSchema = z
     funding_rate_bps_per_bar: z.number().int().nonnegative(),
     initial_balances: z.array(BalanceEntrySchema).min(1),
     scoring_weights: ScoringWeightsSchema.optional(),
-    scoring_weights_reference: z
-      .string()
-      .default("docs/scoring-weights.json"),
+    scoring_weights_reference: z.string().default("docs/scoring-weights.json"),
     baseline_bots_enabled: z.array(z.string()),
     compute_unit_limit: z.number().int().positive().optional(),
   })
@@ -172,58 +165,17 @@ export const ArenaConfigSchema = z
   .refine((c) => c.lookback_len < c.window_duration_bars, {
     message: "lookback_len must be < window_duration_bars",
   })
-  .refine(
-    (c) => c.initial_balances.some((b) => b.mint === c.quote_mint),
-    { message: "initial_balances must include quote_mint" },
-  );
+  .refine((c) => c.initial_balances.some((b) => b.mint === c.quote_mint), {
+    message: "initial_balances must include quote_mint",
+  });
 
-export type BalanceEntry = z.infer<typeof BalanceEntrySchema>;
 export type ScoringWeights = z.infer<typeof ScoringWeightsSchema>;
-export type TapeSourceHistorical = z.infer<typeof HistoricalTapeSourceSchema>;
-export type TapeSourceSynthetic = z.infer<typeof SyntheticTapeSourceSchema>;
 export type TapeSource = z.infer<typeof TapeSourceSchema>;
 export type WindowSamplingConfig = z.infer<typeof WindowSamplingSchema>;
 export type ArenaConfig = z.infer<typeof ArenaConfigSchema>;
 // Represents a config after scoring weights have been resolved from a reference.
-export type ArenaConfigResolved = ArenaConfig & { scoring_weights: ScoringWeights };
-
-export const V1_DEFAULTS: ArenaConfig = {
-  arena_id: "btc-perp-v1",
-  symbol: "BTC-PERP",
-  base_mint: "BTC",
-  quote_mint: "USDC",
-  bar_interval_seconds: 60,
-  price_scale: 1_000_000,
-  volume_scale: 1_000_000,
-  tape_source: {
-    type: "historical",
-    dataset_id: "btc-perp-1m",
-    bar_interval_seconds: 60,
-  },
-  window_duration_bars: 720,
-  max_window_overlap_pct: 0,
-  number_of_windows_per_round: 5,
-  window_sampling: {
-    mode: "sequential",
-    stress_count: 1,
-    buckets: { volatility: 3, trend: 3, volume: 3 },
-  },
-  lookback_len: 120,
-  slippage_bps: 5,
-  impact_k_bps: 5,
-  impact_cap_bps: 50,
-  liquidity_multiplier: 1.0,
-  min_liquidity: 1,
-  taker_fee_bps: 5,
-  initial_margin_bps: 1000,
-  maintenance_margin_bps: 500,
-  max_leverage_bps: 10000,
-  liquidation_fee_bps: 50,
-  funding_rate_bps_per_bar: 0,
-  initial_balances: [{ mint: "USDC", amount: 10000 }],
-  scoring_weights: { pnl: 1.0, drawdown: -0.5, exposure: -0.1 },
-  scoring_weights_reference: "docs/scoring-weights.json",
-  baseline_bots_enabled: ["BUY_AND_HOLD", "FLAT"],
+export type ArenaConfigResolved = ArenaConfig & {
+  scoring_weights: ScoringWeights;
 };
 
 // --- Metrics ---

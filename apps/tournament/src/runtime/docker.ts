@@ -1,27 +1,12 @@
-import { spawn } from "bun";
-import type {
-  ContainerHandle,
-  ContainerRuntime,
-  CreateContainerOptions,
-  ExecOptions,
-  ExecResult,
+/** ContainerRuntime backed by real Docker. Used in production. */
+import {
+  runCommand,
+  type ContainerHandle,
+  type ContainerRuntime,
+  type CreateContainerOptions,
+  type ExecOptions,
+  type ExecResult,
 } from "./container.js";
-
-async function runCommand(
-  command: string[],
-  options?: { cwd?: string; env?: Record<string, string> },
-): Promise<ExecResult> {
-  const proc = spawn(command, {
-    cwd: options?.cwd,
-    env: options?.env,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const stdout = await new Response(proc.stdout).text();
-  const stderr = await new Response(proc.stderr).text();
-  const code = await proc.exited;
-  return { code, stdout, stderr };
-}
 
 export class DockerRuntime implements ContainerRuntime {
   kind: "docker" = "docker";

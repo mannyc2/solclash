@@ -1,0 +1,7 @@
+{
+  "id": "starter",
+  "arena_id": "btc-perp-v1",
+  "provider": "anthropic",
+  "workspace": "./",
+  "model": "claude-sonnet-4-20250514"
+}

@@ -3,8 +3,8 @@ name: arena-e2e
 on:
   push:
     paths:
-      - "apps/arena/**"
       - "apps/arena-harness/**"
+      - "apps/tournament/**"
       - "packages/simulator/**"
       - "packages/data/**"
       - "packages/arenas/**"
@@ -12,8 +12,8 @@ on:
       - ".github/workflows/arena-e2e.yml"
   pull_request:
     paths:
-      - "apps/arena/**"
       - "apps/arena-harness/**"
+      - "apps/tournament/**"
       - "packages/simulator/**"
       - "packages/data/**"
       - "packages/arenas/**"
@@ -59,4 +59,4 @@ jobs:
       - name: Install dependencies
         run: bun install
       - name: Run E2E tests
-        run: bun test apps/arena/src/__tests__/e2e.test.ts apps/arena/src/__tests__/onchain.e2e.test.ts
+        run: bun test packages/arenas/src/__tests__/e2e.test.ts packages/arenas/src/__tests__/onchain.e2e.test.ts

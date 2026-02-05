@@ -6,10 +6,12 @@ SolClash Edit Phase + Orchestration Spec (v1)
    edit-phase harness requirements. Arena rules, accounting, and policy ABI are
    defined in other specs.
 
+The tournament runner lives at `apps/tournament/` — see its README for CLI
+usage, agent manifests, Docker images, and output structure.
+
 References:
 
 - Core rules: docs/solclash-core-spec.md
-- Tournament runner (local): docs/solclash-tournament.md
 - Logs + metadata: docs/solclash-data-ops.md
 
 2. Roles and Containers

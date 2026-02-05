@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { buildWindows } from "../windowing.js";
+import { buildWindows } from "../window_sampling.js";
 import { selectWindows } from "../window_sampling.js";
 import type { OhlcvBar, WindowSamplingConfig } from "@solclash/simulator";
 

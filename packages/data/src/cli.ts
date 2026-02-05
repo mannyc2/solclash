@@ -1,15 +1,15 @@
 #!/usr/bin/env bun
-import { parseArgs } from "util";
+// TODO: Move this CLI to its own app (e.g. apps/data-cli). Executables shouldn't
+// live in library packages — @solclash/data should only export library code.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { parseArgs } from "node:util";
 import type { TapeSource } from "@solclash/simulator";
-import { loadTape } from "./tape.js";
 import { fetchAllKlines, type BinanceInterval } from "./binance.js";
+import { loadTape } from "./tape.js";
 
-const subcommand = process.argv[2];
-
-if (subcommand === "generate") {
-  const { values } = parseArgs({
+async function runGenerate(): Promise<void> {
+  const parsed = parseArgs({
     args: process.argv.slice(3),
     options: {
       out: { type: "string", default: "tmp/bars.json" },
@@ -24,46 +24,50 @@ if (subcommand === "generate") {
     strict: true,
     allowPositionals: false,
   });
-
-  const count = Number(values.count);
-  const interval = Number(values.interval);
-  const seed = Number(values.seed);
-  const startPrice = Number(values["start-price"]);
-  const driftBps = Number(values["drift-bps"]);
-  const volBps = Number(values["vol-bps"]);
+  const values = parsed.values as {
+    out: string;
+    count: string;
+    interval: string;
+    symbol: string;
+    seed: string;
+    "start-price": string;
+    "drift-bps": string;
+    "vol-bps": string;
+  };
 
   const source: TapeSource = {
     type: "synthetic",
     generator_id: "gbm_v1",
-    seed,
+    seed: Number(values.seed),
     params: {
-      total_bars: count,
-      start_price: startPrice,
-      drift_bps_per_bar: driftBps,
-      vol_bps_per_sqrt_bar: volBps,
+      total_bars: Number(values.count),
+      start_price: Number(values["start-price"]),
+      drift_bps_per_bar: Number(values["drift-bps"]),
+      vol_bps_per_sqrt_bar: Number(values["vol-bps"]),
     },
   };
 
   const bars = await loadTape(source, {
-    barIntervalSeconds: interval,
+    barIntervalSeconds: Number(values.interval),
     symbol: values.symbol,
   });
 
   const outPath = values.out;
   mkdirSync(dirname(outPath), { recursive: true });
-
   if (outPath.endsWith(".jsonl")) {
     writeFileSync(
       outPath,
-      bars.map((b) => JSON.stringify(b)).join("\n") + "\n",
+      bars.map((bar) => JSON.stringify(bar)).join("\n") + "\n",
     );
   } else {
     writeFileSync(outPath, JSON.stringify(bars, null, 2));
   }
 
   console.log(`Wrote ${bars.length} bars to ${outPath}`);
-} else if (subcommand === "fetch") {
-  const { values } = parseArgs({
+}
+
+async function runFetch(): Promise<void> {
+  const parsed = parseArgs({
     args: process.argv.slice(3),
     options: {
       out: { type: "string" },
@@ -75,6 +79,13 @@ if (subcommand === "generate") {
     strict: true,
     allowPositionals: false,
   });
+  const values = parsed.values as {
+    out?: string;
+    symbol?: string;
+    interval?: string;
+    start?: string;
+    end?: string;
+  };
 
   if (
     !values.out ||
@@ -83,15 +94,14 @@ if (subcommand === "generate") {
     !values.start ||
     !values.end
   ) {
-    console.error(
+    throw new Error(
       "Usage: solclash-data fetch --out <path> --symbol <s> --interval <s> --start <ms|ISO> --end <ms|ISO>",
     );
-    process.exit(1);
   }
 
-  const parseTime = (v: string): number => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : new Date(v).getTime();
+  const parseTime = (value: string): number => {
+    const asNumber = Number(value);
+    return Number.isFinite(asNumber) ? asNumber : new Date(value).getTime();
   };
 
   const bars = await fetchAllKlines({
@@ -103,20 +113,35 @@ if (subcommand === "generate") {
 
   const outPath = values.out;
   mkdirSync(dirname(outPath), { recursive: true });
-
   if (outPath.endsWith(".jsonl")) {
     writeFileSync(
       outPath,
-      bars.map((b) => JSON.stringify(b)).join("\n") + "\n",
+      bars.map((bar) => JSON.stringify(bar)).join("\n") + "\n",
     );
   } else {
     writeFileSync(outPath, JSON.stringify(bars, null, 2));
   }
 
   console.log(`Wrote ${bars.length} bars to ${outPath}`);
-} else {
-  console.error(
+}
+
+async function main(): Promise<void> {
+  const subcommand = process.argv[2];
+  if (subcommand === "generate") {
+    await runGenerate();
+    return;
+  }
+  if (subcommand === "fetch") {
+    await runFetch();
+    return;
+  }
+
+  throw new Error(
     "Usage:\n  solclash-data generate [options]    Generate synthetic bars (GBM)\n  solclash-data fetch [options]       Fetch historical bars from Binance",
   );
-  process.exit(1);
 }
+
+main().catch((err) => {
+  console.error(err instanceof Error ? err.message : String(err));
+  process.exit(1);
+});

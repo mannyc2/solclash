@@ -1,7 +1,7 @@
 import type { OhlcvBar } from "@solclash/simulator";
 import type { WindowDef } from "@solclash/simulator";
 
-export interface ValidationError {
+interface ValidationError {
   index: number;
   field: string;
   message: string;

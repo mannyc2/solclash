@@ -1,19 +1,62 @@
-import { $ } from "bun";
+/**
+ * Tournament orchestrator.
+ *
+ * A tournament is N rounds of: edit → compete → score.
+ *
+ * 1. EDIT PHASE (optional) — Each non-builtin agent gets a sandboxed Claude
+ *    Code session to modify its own Solana program source. The agent sees its
+ *    previous round's logs so it can learn from mistakes. (See edit/runner.ts.)
+ *
+ * 2. COMPETITION PHASE — All agents (builtin baseline bots + workspace agents
+ *    with compiled programs) are fed the same OHLCV bar data and scored on
+ *    PnL, drawdown, and exposure via the simulator engine.
+ *    - "local" mode: runs the simulator in-process (fast, no Docker)
+ *    - "container" mode: runs the arena CLI inside Docker (isolated, reproducible)
+ *
+ * 3. After each round, logs are optionally "injected" (copied) into each
+ *    agent's workspace so the next edit phase can see what happened.
+ *
+ * The CLI (cli.ts) handles arg parsing and setup; this file owns the loop.
+ */
+import { cp, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { ArenaConfigResolved, OhlcvBar } from "@solclash/simulator";
-import type { AgentProvider } from "@solclash/agents";
+import type { Agent, AgentProvider } from "@solclash/agents";
 import {
+  buildPolicies,
+  deriveRoundMeta,
   executeRound,
+  HarnessClient,
+  prepareProgramsAndInvalidAgents,
   writeRoundMeta,
-  type Agent,
+  type OnchainWorkspaceAgent,
   type RoundMeta,
-} from "@solclash/arena";
-import { injectLogs } from "./inject.js";
+  type ValidatedWorkspace,
+} from "@solclash/arenas";
 import { runEditPhase } from "./edit/runner.js";
-import type { EditConfig } from "./edit/types.js";
+import type { EditConfig } from "./edit/config.js";
 import type { ContainerRuntime } from "./runtime/container.js";
 import { runCompetitionInContainer } from "./competition/container.js";
 
+/** Copy a round's result logs into each agent's workspace so the next edit phase can read them. */
+async function injectLogs(
+  roundDir: string,
+  roundNum: number,
+  targets: string[],
+): Promise<void> {
+  for (const target of targets) {
+    const dest = join(target, "logs", "rounds", `${roundNum}`);
+    await mkdir(dest, { recursive: true });
+    await cp(roundDir, dest, { recursive: true });
+  }
+}
+
+/**
+ * Lightweight agent descriptor used throughout the tournament.
+ * Builtin agents (baseline bots like MOMENTUM, FLAT) have no workspace.
+ * Workspace agents have a local directory with Solana program source that
+ * gets compiled and loaded into the harness each round.
+ */
 export interface AgentSource {
   id: string;
   provider: AgentProvider | "builtin";
@@ -42,6 +85,7 @@ export function getProviderEnvDefaults(provider: AgentProvider): {
   return PROVIDER_ENV_DEFAULTS[provider];
 }
 
+/** Fail fast if any agent's LLM provider API key is missing from the environment. */
 export function validateAgentEnvironment(agents: AgentSource[]): void {
   const missingCredentials: Array<{
     agentId: string;
@@ -108,6 +152,10 @@ export interface TournamentOpts {
   runtime?: ContainerRuntime;
   arenaImage?: string;
   competitionMode?: "container" | "local";
+  /** Path to the Rust harness binary (required for local mode with workspace agents). */
+  harnessPath?: string;
+  /** Pre-validated workspaces from resolveAllAgents (used by local mode to compile programs). */
+  validatedWorkspaces?: Map<string, ValidatedWorkspace>;
 }
 
 export interface TournamentResult {
@@ -129,6 +177,7 @@ export async function runTournament(
     runtime,
     arenaImage = "solclash-arena",
     competitionMode,
+    harnessPath,
   } = opts;
 
   const resolvedCompetitionMode =
@@ -151,82 +200,111 @@ export async function runTournament(
 
   const promptRef = editConfig?.prompt_ref ?? null;
 
+  // In local mode, compile workspace agents and start the harness once
+  // before the round loop. Programs don't change between rounds in local
+  // mode (no edit phase without Docker), so one harness serves all rounds.
+  const invalidAgents: Record<string, string> = {};
+  let harness: HarnessClient | null = null;
+
+  if (!useContainerCompetition && opts.validatedWorkspaces) {
+    const workspaceAgents = agentSources.filter(
+      (a) => a.provider !== "builtin" && a.workspace,
+    );
+
+    if (workspaceAgents.length > 0) {
+      const onchain: OnchainWorkspaceAgent[] = [];
+      for (const a of workspaceAgents) {
+        const workspace = opts.validatedWorkspaces.get(a.id);
+        if (!workspace) {
+          throw new Error(`Missing validated workspace for agent '${a.id}'`);
+        }
+        onchain.push({ id: a.id, workspace });
+      }
+
+      const prepared = await prepareProgramsAndInvalidAgents(onchain);
+      Object.assign(invalidAgents, prepared.invalidAgents);
+
+      if (prepared.programs.length > 0) {
+        if (!harnessPath) {
+          throw new Error(
+            "Local mode with workspace agents requires --harness path",
+          );
+        }
+        harness = await HarnessClient.start(
+          harnessPath,
+          prepared.programs,
+          config.compute_unit_limit,
+        );
+        agents.push(...buildPolicies(prepared.programs, harness));
+      }
+    }
+  }
+
   const roundRoot = join(outputDir, "rounds");
-  await $`mkdir -p ${roundRoot}`.quiet();
+  await mkdir(roundRoot, { recursive: true });
 
   const collected: TournamentResult["rounds"] = [];
 
-  for (let round = 1; round <= rounds; round++) {
-    console.log(`\n${"=".repeat(60)}`);
-    console.log(`Round ${round}/${rounds}`);
-    console.log("=".repeat(60));
+  try {
+    for (let round = 1; round <= rounds; round++) {
+      console.log(`\n${"=".repeat(60)}`);
+      console.log(`Round ${round}/${rounds}`);
+      console.log("=".repeat(60));
 
-    const roundDir = join(roundRoot, `${round}`);
-    await $`mkdir -p ${roundDir}`.quiet();
+      const roundDir = join(roundRoot, `${round}`);
+      await mkdir(roundDir, { recursive: true });
 
-    if (editConfig && promptRef && runtime) {
-      await runEditPhase({
-        round,
-        agents: agentSources,
-        config: editConfig,
-        prompt_ref: promptRef,
-        runtime,
-        logsRoot: outputDir,
-      });
-    }
-
-    let meta: RoundMeta | null = null;
-
-    if (useContainerCompetition && runtime) {
-      meta = await runCompetitionInContainer({
-        round,
-        config,
-        bars,
-        outputDir,
-        agentSources,
-        runtime,
-        image: arenaImage,
-      });
-    } else {
-      const roundStart = Date.now();
-      const result = await executeRound(config, bars, agents, roundDir);
-      const roundEnd = Date.now();
-
-      const scores: Record<string, number> = {};
-      for (const [agentId, metrics] of Object.entries(result.round_metrics)) {
-        scores[agentId] = metrics.score;
+      if (editConfig && promptRef && runtime) {
+        await runEditPhase({
+          round,
+          agents: agentSources,
+          config: editConfig,
+          prompt_ref: promptRef,
+          runtime,
+          logsRoot: outputDir,
+        });
       }
 
-      let winner: string | null = null;
-      let bestScore = -Infinity;
-      for (const [agentId, score] of Object.entries(scores)) {
-        if (score > bestScore) {
-          bestScore = score;
-          winner = agentId;
-        }
+      let meta: RoundMeta | null = null;
+
+      if (useContainerCompetition && runtime) {
+        meta = await runCompetitionInContainer({
+          round,
+          config,
+          bars,
+          outputDir,
+          agentSources,
+          runtime,
+          image: arenaImage,
+        });
+      } else {
+        const roundStart = Date.now();
+        const result = await executeRound(config, bars, agents, roundDir);
+        meta = deriveRoundMeta(
+          roundStart,
+          Date.now(),
+          result.round_metrics,
+          invalidAgents,
+        );
+
+        await writeRoundMeta(roundDir, meta);
       }
 
-      meta = {
-        round_start_ts: roundStart,
-        round_end_ts: roundEnd,
-        winner,
-        scores,
-        invalid_agents: {},
-      };
+      collected.push({ round_num: round, meta });
 
-      await writeRoundMeta(roundDir, meta);
+      if (meta.winner) {
+        console.log(
+          `\nRound ${round} Winner: ${meta.winner} (score: ${meta.scores[meta.winner]?.toFixed(2) ?? "N/A"})`,
+        );
+      }
+
+      if (injectTargets.length > 0) {
+        await injectLogs(roundDir, round, injectTargets);
+      }
     }
-
-    collected.push({ round_num: round, meta });
-
-    if (meta.winner) {
-      console.log(
-        `\nRound ${round} Winner: ${meta.winner} (score: ${meta.scores[meta.winner]?.toFixed(2) ?? "N/A"})`,
-      );
-    }
-
-    if (injectTargets.length > 0) {
-      await injectLogs(roundDir, round, injectTargets);
+  } finally {
+    if (harness) {
+      await harness.shutdown();
     }
   }
 

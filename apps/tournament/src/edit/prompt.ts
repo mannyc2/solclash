@@ -1,7 +1,19 @@
+/**
+ * Edit prompt resolution.
+ *
+ * Each edit session needs a system prompt telling the agent what to do.
+ * The prompt_ref in the config is either:
+ *   - "default"      → use the built-in prompt (different for round 1 vs later rounds)
+ *   - a file path    → read the prompt from disk
+ *
+ * The built-in prompt for round 1 tells the agent to read docs and improve
+ * the starter code. Later rounds tell the agent to read its previous results
+ * and iterate. Every resolved prompt is SHA-256'd for audit logging.
+ */
 import { readFileSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { isAbsolute, resolve, sep } from "node:path";
-import type { ResolvedPrompt } from "./types.js";
+import type { ResolvedPrompt } from "./config.js";
 
 function sha256(content: string): string {
   return createHash("sha256").update(content).digest("hex");

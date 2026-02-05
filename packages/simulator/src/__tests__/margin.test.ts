@@ -1,5 +1,10 @@
 import { describe, test, expect } from "bun:test";
-import { checkMargin, checkInitialMargin, checkMaxLeverage, liquidate } from "../margin.js";
+import {
+  checkMargin,
+  checkInitialMargin,
+  checkMaxLeverage,
+  liquidateAtPrice,
+} from "../margin.js";
 import type { AccountState } from "../types.js";
 
 describe("checkMargin", () => {
@@ -105,7 +110,7 @@ describe("checkMaxLeverage", () => {
   });
 });
 
-describe("liquidate", () => {
+describe("liquidateAtPrice", () => {
   test("liquidates long position", () => {
     const account: AccountState = {
       cash_balance: 100,
@@ -117,7 +122,7 @@ describe("liquidate", () => {
     // notional = 2 * 45 = 90
     // liq_fee = 90 * 50/10000 = 0.45
     // new cash = 100 + (-10) - 0.45 = 89.55
-    const result = liquidate(account, 45, 50);
+    const result = liquidateAtPrice(account, 45, 50);
     expect(result.liquidated_qty).toBe(2);
     expect(result.exec_price).toBe(45);
     expect(result.liquidation_fee).toBeCloseTo(0.45, 10);

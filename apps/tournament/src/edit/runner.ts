@@ -1,36 +1,32 @@
+/**
+ * Edit phase — gives each agent a Claude Code session to modify its source.
+ *
+ * For each non-builtin agent:
+ *   1. Spin up a container with the agent's workspace mounted.
+ *   2. Write an edit_input.json describing the prompt, constraints, and model.
+ *   3. Run the edit-runner script (a thin Claude Code wrapper) inside the container.
+ *   4. If the session succeeds, copy the modified workspace back to the host
+ *      so the competition phase uses the updated code.
+ *   5. Write edit_meta.json with the session outcome for debugging.
+ *
+ * Agents run concurrently up to config.concurrency (default 4).
+ */
 import { mkdir, mkdtemp, rm, writeFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { spawn } from "bun";
-import type { ContainerRuntime } from "../runtime/container.js";
+import { runCommand, type ContainerRuntime } from "../runtime/container.js";
 import type { AgentSource } from "../runner.js";
 import { getProviderEnvDefaults } from "../runner.js";
-import type { EditConfig, EditSessionOutput } from "./types.js";
+import type { EditConfig, EditSessionOutput } from "./config.js";
 import { resolveEditPrompt } from "./prompt.js";
 
-export interface EditPhaseOpts {
+interface EditPhaseOpts {
   round: number;
   agents: AgentSource[];
   config: EditConfig;
   prompt_ref: string;
   runtime: ContainerRuntime;
   logsRoot: string;
-}
-
-async function runCommand(
-  command: string[],
-  options?: { cwd?: string; env?: Record<string, string> },
-): Promise<{ code: number; stdout: string; stderr: string }> {
-  const proc = spawn(command, {
-    cwd: options?.cwd,
-    env: options?.env,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const stdout = await new Response(proc.stdout).text();
-  const stderr = await new Response(proc.stderr).text();
-  const code = await proc.exited;
-  return { code, stdout, stderr };
 }
 
 async function replaceDirContents(dest: string, src: string): Promise<void> {
@@ -52,6 +48,11 @@ async function readJsonFile(
   }
 }
 
+/**
+ * docker cp sometimes nests the copied dir inside a "workspace/" subdirectory
+ * depending on whether the source path ended with "/." or not. This function
+ * detects that and returns the actual workspace root.
+ */
 async function resolveCopiedWorkspace(root: string): Promise<string> {
   const candidate = join(root, "workspace");
   try {

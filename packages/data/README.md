@@ -4,14 +4,6 @@ OHLCV data loading, validation, and windowing for the SolClash simulator.
 
 ## API
 
-### `loadBarsFromJson(filePath) -> Promise<OhlcvBar[]>`
-
-Loads bars from a JSON file containing an array of `OhlcvBar` objects.
-
-### `loadBarsFromJsonl(filePath) -> Promise<OhlcvBar[]>`
-
-Loads bars from a JSONL file (one JSON object per line).
-
 ### `loadTape(tapeSource, opts) -> Promise<OhlcvBar[]>`
 
 Loads bars using the configured tape source.
@@ -58,32 +50,15 @@ Returns an empty array if all bars are valid.
 import { validateBars } from "@solclash/data";
 
 const errors = validateBars(bars, 60_000); // 1-minute bars
-if (errors.length > 0) {
-  for (const e of errors) {
-    console.error(`Bar ${e.index}: ${e.field} — ${e.message}`);
-  }
-}
 ```
 
 ### `buildWindows(bars, windowDurationBars, maxOverlapPct) -> WindowDef[]`
 
 Slices a bar array into window definitions based on duration and overlap settings.
 
-- `maxOverlapPct = 0` produces non-overlapping windows
-- `maxOverlapPct = 50` produces windows with 50% overlap
-
 ### `sliceBars(bars, windowDef) -> OhlcvBar[]`
 
 Extracts the bars for a given `WindowDef` from the full bar array.
-
-```ts
-import { buildWindows, sliceBars } from "@solclash/data";
-
-const windows = buildWindows(bars, 720, 0);
-const firstWindowBars = sliceBars(bars, windows[0]);
-```
-
-## Window Sampling
 
 ### `selectWindows(windows, bars, sampling, total) -> WindowDef[]`
 
@@ -92,34 +67,11 @@ Selects a subset of windows using one of two modes configured via `WindowSamplin
 - **Sequential** — returns the first `total` windows in order.
 - **Stratified** — picks high-stress windows first (by volatility), then round-robins across volatility/trend/volume buckets for balanced market-condition coverage. Uses FNV-1a hashing with an optional `seed` for deterministic results.
 
-### `computeWindowStats(bars, windowDef) -> WindowStats`
-
-Computes summary statistics for a single window:
-
-```ts
-interface WindowStats {
-  window_id: string;
-  volatility: number; // std dev of close-to-close returns
-  trend: number; // % change from first to last close
-  volume: number; // mean volume across bars
-}
-```
-
 ## Binance Fetcher
 
 ### `fetchKlines(opts) -> Promise<OhlcvBar[]>`
 
 Fetches a single page of kline (candlestick) data from the Binance public API. Max 1000 bars per request.
-
-```ts
-import { fetchKlines } from "@solclash/data";
-
-const bars = await fetchKlines({
-  symbol: "BTCUSDT",
-  interval: "1m",
-  limit: 500,
-});
-```
 
 ### `fetchAllKlines(opts) -> Promise<OhlcvBar[]>`
 
@@ -131,7 +83,7 @@ import { fetchAllKlines } from "@solclash/data";
 const bars = await fetchAllKlines({
   symbol: "BTCUSDT",
   interval: "1m",
-  startTime: Date.now() - 24 * 60 * 60 * 1000, // 24h ago
+  startTime: Date.now() - 24 * 60 * 60 * 1000,
   endTime: Date.now(),
 });
 ```

@@ -3,7 +3,6 @@ FROM solclash-base AS deps
 WORKDIR /opt/solclash
 
 COPY package.json bun.lock tsconfig.json tsconfig.base.json ./
-COPY apps/arena/package.json apps/arena/package.json
 COPY apps/arena-harness/Cargo.toml apps/arena-harness/Cargo.toml
 COPY apps/tournament/package.json apps/tournament/package.json
 COPY packages/agents/package.json packages/agents/package.json

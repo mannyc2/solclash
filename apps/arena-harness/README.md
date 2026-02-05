@@ -2,7 +2,7 @@
 
 Rust-based Solana program test harness for evaluating on-chain trading policies. Runs compiled SBF programs in a local Solana validator and communicates via async JSON-over-stdin/stdout.
 
-Used by `@solclash/arena` when `--onchain-agents` are provided (including in the arena container).
+Used by `@solclash/tournament` local mode when on-chain agent manifests are provided (including in the arena container).
 
 ## Protocol
 

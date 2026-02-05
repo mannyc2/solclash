@@ -1,16 +1,12 @@
 import { describe, test, expect } from "bun:test";
-import { HarnessClient } from "../harness.js";
+import { HarnessClient } from "../runtime/harness.js";
 import type { EvalInputV1 } from "@solclash/simulator";
 import { join } from "node:path";
 
 describe("HarnessClient", () => {
   test("eval returns HOLD output", async () => {
     const harnessPath = process.execPath;
-    const scriptPath = join(
-      import.meta.dir,
-      "fixtures",
-      "fake-harness.ts",
-    );
+    const scriptPath = join(import.meta.dir, "fixtures", "fake-harness.ts");
 
     const harness = await HarnessClient.start(
       harnessPath,
@@ -63,11 +59,7 @@ describe("HarnessClient", () => {
 
   test("propagates nonzero err_code when harness falls back to HOLD", async () => {
     const harnessPath = process.execPath;
-    const scriptPath = join(
-      import.meta.dir,
-      "fixtures",
-      "fake-harness-err.ts",
-    );
+    const scriptPath = join(import.meta.dir, "fixtures", "fake-harness-err.ts");
 
     const harness = await HarnessClient.start(
       harnessPath,

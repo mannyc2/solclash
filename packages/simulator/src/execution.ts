@@ -1,12 +1,3 @@
-export function computeExecPrice(
-  openPrice: number,
-  deltaQty: number,
-  slippageBps: number,
-): number {
-  const sign = deltaQty > 0 ? 1 : -1;
-  return openPrice * (1 + (sign * slippageBps) / 10_000);
-}
-
 export function computeImpactBps(
   netQty: number,
   barVolume: number,

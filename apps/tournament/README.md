@@ -16,7 +16,7 @@ solclash-tournament \
 Or via the root script:
 
 ```sh
-bun run tournament -- --config arena-config.json --rounds 3 --edit-prompt default
+bun run tournament -- --config arena-config.json --rounds 3
 ```
 
 ### Full Test (Edit + Competition)
@@ -53,29 +53,23 @@ bun run tournament -- \
   --data ./tmp/bars.json \
   --rounds 1 \
   --output ./logs \
-  --agent ./agents/team-a/solclash-agent.json \
-  --edit-max-turns 5
+  --agent ./agents/team-a/solclash-agent.json
 ```
 
 If you want competition-only, add `--no-edit`.
 
 ### Options
 
-| Flag                       | Short | Required | Default   | Description                                                              |
-| -------------------------- | ----- | -------- | --------- | ------------------------------------------------------------------------ |
-| `--config`                 | `-c`  | Yes      | --        | Path to arena config JSON (validated with Zod). Must contain `arena_id`. |
-| `--data`                   | `-d`  | No       | --        | Path to bar data file. Optional if `tape_source` is set in config.       |
-| `--rounds`                 | `-r`  | No       | `1`       | Number of tournament rounds.                                             |
-| `--output`                 | `-o`  | No       | `./logs`  | Output directory for tournament logs.                                    |
-| `--agent`                  | `-a`  | No       | `[]`      | Paths to agent manifest JSON files (repeatable).                         |
-| `--no-edit`                |       | No       | `false`   | Disable edit phase (competition only).                                   |
-| `--edit-prompt`            |       | No       | `default` | Edit prompt id (`default`) or explicit file path.                        |
-| `--edit-max-turns`         |       | No       | `250`     | Max edit turns per agent.                                                |
-| `--edit-concurrency`       |       | No       | `4`       | Max concurrent edit sessions.                                            |
-| `--edit-timeout-ms`        |       | No       | --        | Wall-clock timeout for edit sessions.                                    |
-| `--edit-network-enabled`   |       | No       | `false`   | Allow network tools during edit (still allowlisted).                     |
-| `--edit-network-allowlist` |       | No       | `[]`      | Allowed hosts for WebFetch (repeatable).                                 |
-| `--edit-model`             |       | No       | --        | Override model name for all agents during the edit phase.                |
+| Flag        | Short | Required | Default  | Description                                                        |
+| ----------- | ----- | -------- | -------- | ------------------------------------------------------------------ |
+| `--config`  | `-c`  | Yes      | --       | Path to arena config JSON. Must contain `arena_id`.                |
+| `--data`    | `-d`  | No       | --       | Path to bar data file. Optional if `tape_source` is set in config. |
+| `--rounds`  | `-r`  | No       | `1`      | Number of tournament rounds (multi-round mode only).               |
+| `--output`  | `-o`  | No       | `./logs` | Output directory for logs and artifacts.                           |
+| `--agent`   | `-a`  | No       | `[]`     | Paths to agent manifest JSON files (repeatable).                   |
+| `--local`   |       | No       | `false`  | Skip Docker — compile and run agents directly on the host.         |
+| `--harness` |       | No       | --       | Override harness binary path for local mode with on-chain agents.  |
+| `--no-edit` |       | No       | `false`  | Disable the Claude Code edit phase.                                |
 
 ### Agent Manifest Validation
 
@@ -142,6 +136,25 @@ bun run tournament -- \
 ```
 
 The system validates required environment variables before starting the edit phase.
+
+## Local Mode
+
+Use `--local` to skip Docker and run the competition engine directly on the host:
+
+```sh
+bun run tournament -- \
+  --local \
+  --no-edit \
+  --rounds 1 \
+  --config ./arena-config.json \
+  --data ./tmp/bars.json \
+  --output ./output \
+  --agent ./agents/team-a/solclash-agent.json \
+  --harness ./apps/arena-harness/target/release/solclash-harness
+```
+
+Workspace agents are compiled and run directly via the harness binary.
+Results are written to `--output/rounds/1/`.
 
 ## Log Injection
 

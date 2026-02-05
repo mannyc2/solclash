@@ -3,7 +3,7 @@ import { describe, test, expect, afterAll } from "bun:test";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ArenaConfigResolved, OhlcvBar } from "@solclash/simulator";
-import { getBuiltinAgent, type Agent } from "@solclash/arena";
+import { getBuiltinAgent, type Agent } from "@solclash/agents";
 import { runTournament, type AgentSource } from "../runner.js";
 import { HostRuntime } from "../runtime/host.js";
 import { buildEditConfig } from "../edit/config.js";
@@ -90,7 +90,7 @@ describe("tournament e2e", () => {
   test("runs 2-round tournament with log injection", async () => {
     const bars = makeFixtureBars(20);
     const momentumPolicy = (
-      await import("../../../arena/src/__tests__/fixtures/momentum-agent.js")
+      await import("../../../../packages/arenas/src/__tests__/fixtures/momentum-agent.js")
     ).default;
 
     const agents: Agent[] = [
@@ -220,7 +220,7 @@ describe("tournament e2e", () => {
   test("runs tournament without inject targets", async () => {
     const bars = makeFixtureBars(20);
     const momentumPolicy = (
-      await import("../../../arena/src/__tests__/fixtures/momentum-agent.js")
+      await import("../../../../packages/arenas/src/__tests__/fixtures/momentum-agent.js")
     ).default;
 
     const agents: Agent[] = [

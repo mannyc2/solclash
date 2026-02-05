@@ -14,16 +14,17 @@ import type {
 } from "./types.js";
 import { ActionType } from "./types.js";
 import { computeUniformExecPrice, computeFee } from "./execution.js";
-import { applyTrade, computeEquity } from "./accounting.js";
+import { applyTrade, computeEquity, applyFunding } from "./accounting.js";
 import {
   checkMargin,
   checkInitialMargin,
   checkMaxLeverage,
   liquidateAtPrice,
 } from "./margin.js";
-import { applyFunding } from "./funding.js";
 import { computeWindowMetrics, type EquityPoint } from "./metrics.js";
 
+// Captures what each agent wants to do on a given bar, so we can collect all
+// intentions first, then execute them together with a shared market impact price.
 interface StepAction {
   delta_qty: number;
   is_liquidation: boolean;
@@ -51,6 +52,11 @@ function getBarAt(bars: OhlcvBar[], index: number, context: string): OhlcvBar {
   return bar;
 }
 
+// Agents run as untrusted code (user-submitted strategies), so we can't assume
+// they return a well-typed EvalOutputV1. This defensively coerces whatever they
+// return — handles stringified numbers, missing fields, invalid action types,
+// and nonsensical quantities (e.g. BUY with qty <= 0). Returns null if the
+// output is unsalvageable, which the caller treats as a HOLD.
 function normalizePolicyOutput(raw: unknown): EvalOutputV1 | null {
   if (!isRecord(raw)) {
     return null;
@@ -109,6 +115,17 @@ function toFiniteNumber(value: unknown): number | null {
   return null;
 }
 
+// Simulates all agents trading over a single window of OHLCV bars.
+//
+// The loop follows a two-phase pattern per bar:
+//   Phase 1 (decision): Each agent sees the current bar, decides an action,
+//     and we check if they're being liquidated. All decisions are collected
+//     into stepActions before any trades execute.
+//   Phase 2 (execution): All trades execute at the *next* bar's open price,
+//     with a shared market-impact model so agents affect each other's fills.
+//     This prevents look-ahead bias (you decide on bar T, fill on bar T+1).
+//
+// On the last bar, no execution happens — agents only get a final mark-to-market.
 export async function runWindow(
   config: ArenaConfig,
   bars: OhlcvBar[],
@@ -162,6 +179,7 @@ export async function runWindow(
     const lookbackStart = Math.max(0, t - config.lookback_len + 1);
     const lookbackBars = bars.slice(lookbackStart, t + 1);
 
+    // --- Phase 1: Collect each agent's decision for this bar ---
     const stepActions: Record<string, StepAction> = {};
 
     for (const agent of agents) {
@@ -194,7 +212,10 @@ export async function runWindow(
         ohlcv: lookbackBars,
       };
 
-      // 2. Get agent action
+      // 2. Call the agent's policy function. Since agents are untrusted user code,
+      //    we catch exceptions and normalize bad output — a broken agent becomes
+      //    a HOLD (err_code 5 = throw, 6 = bad output shape) rather than crashing
+      //    the entire simulation.
       let output: EvalOutputV1;
       let status: "OK" | "ERR" = "OK";
       try {
@@ -207,7 +228,6 @@ export async function runWindow(
           output = normalized;
         }
       } catch (_err) {
-        // Treat policy failures as HOLD so a single agent can't abort the round.
         status = "ERR";
         output = holdOutput(5);
       }
@@ -229,7 +249,8 @@ export async function runWindow(
           break;
       }
 
-      // 4. Mark-to-market at bar close (before executing the pending trade)
+      // 4. Mark-to-market at bar close — record equity *before* the trade executes
+      //    so the equity curve reflects positions held during this bar, not after.
       const markPrice = bar.close;
       const equity = computeEquity(state.account, markPrice);
       const notionalExposure = Math.abs(state.account.position_qty) * markPrice;
@@ -244,7 +265,10 @@ export async function runWindow(
         mark_price: markPrice,
       });
 
-      // 5. Check margin at bar close (before trade execution)
+      // 5. Maintenance margin check — if the agent's existing position has fallen
+      //    below the maintenance threshold, override their intended trade with a
+      //    forced close (liquidation). This happens before execution so the
+      //    liquidation fills at the next bar's open alongside normal trades.
       let isLiquidation = false;
       let finalDelta = deltaQty;
       if (state.account.position_qty !== 0) {
@@ -267,10 +291,13 @@ export async function runWindow(
       };
     }
 
-    // 6. Execute at next bar open (if not last bar)
+    // --- Phase 2: Execute all trades at the next bar's open ---
+    // Skipped on the last bar since there's no next bar to provide an open price.
     if (t < bars.length - 1) {
       const nextBar = getBarAt(bars, t + 1, "execution");
-      // Uniform execution uses net flow to apply transient impact without mutating the tape.
+      // Sum all agent deltas into a net flow. The uniform execution model applies
+      // market impact based on this aggregate — if agents trade in opposite
+      // directions, their impact partially cancels out.
       const netQty = Object.values(stepActions).reduce(
         (sum, a) => sum + a.delta_qty,
         0,
@@ -318,6 +345,9 @@ export async function runWindow(
             execInfo.exec_price,
             fee,
           );
+          // Only check initial margin + max leverage when the trade *increases*
+          // exposure. Reducing or closing a position is always allowed — we don't
+          // want margin rules to prevent an agent from de-risking.
           const increasesExposure =
             Math.abs(tradeResult.account.position_qty) >
             Math.abs(state.account.position_qty);

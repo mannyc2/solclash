@@ -30,7 +30,8 @@ export function checkMargin(
   const notional = Math.abs(account.position_qty) * markPrice;
   const equity = computeEquity(account, markPrice);
   const maintenance_margin = notional * (maintenanceMarginBps / 10_000);
-  const is_liquidated = account.position_qty !== 0 && equity < maintenance_margin;
+  const is_liquidated =
+    account.position_qty !== 0 && equity < maintenance_margin;
 
   return { notional, equity, maintenance_margin, is_liquidated };
 }
@@ -73,11 +74,9 @@ export function liquidateAtPrice(
 ): LiquidationResult {
   const liquidated_qty = account.position_qty;
   const posSign = liquidated_qty > 0 ? 1 : -1;
-  // Liquidation happens at next bar open (no slippage, but with liquidation fee)
-  const exec_price = execPrice;
   const realized_pnl =
-    Math.abs(liquidated_qty) * (exec_price - account.avg_entry_price) * posSign;
-  const notional = Math.abs(liquidated_qty) * exec_price;
+    Math.abs(liquidated_qty) * (execPrice - account.avg_entry_price) * posSign;
+  const notional = Math.abs(liquidated_qty) * execPrice;
   const liquidation_fee = notional * (liquidationFeeBps / 10_000);
 
   return {
@@ -88,14 +87,6 @@ export function liquidateAtPrice(
     },
     liquidation_fee,
     liquidated_qty,
-    exec_price,
+    exec_price: execPrice,
   };
-}
-
-export function liquidate(
-  account: AccountState,
-  nextOpenPrice: number,
-  liquidationFeeBps: number,
-): LiquidationResult {
-  return liquidateAtPrice(account, nextOpenPrice, liquidationFeeBps);
 }

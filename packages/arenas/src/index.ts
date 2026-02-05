@@ -1,6 +1,5 @@
 import { stat } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 
 export interface ArenaWorkspaceRequirements {
   required_directories: string[];
@@ -23,13 +22,6 @@ export interface ValidatedWorkspace {
   artifact_path: string;
 }
 
-const REPO_ROOT = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "..",
-  "..",
-);
-
 const ARENA_DEFINITIONS: Record<string, ArenaDefinition> = {
   "btc-perp-v1": {
     arena_id: "btc-perp-v1",
@@ -46,26 +38,12 @@ const ARENA_DEFINITIONS: Record<string, ArenaDefinition> = {
   },
 };
 
-export function listArenaDefinitions(): ArenaDefinition[] {
-  return Object.values(ARENA_DEFINITIONS);
-}
-
 export function getArenaDefinition(arenaId: string): ArenaDefinition {
   const definition = ARENA_DEFINITIONS[arenaId];
   if (!definition) {
     throw new Error(`Unknown arena_id: ${arenaId}`);
   }
   return definition;
-}
-
-export function resolveArenaStarterPath(arenaId: string): string {
-  const definition = getArenaDefinition(arenaId);
-  return resolve(REPO_ROOT, definition.starter_path);
-}
-
-export function resolveArenaDefaultConfigPath(arenaId: string): string {
-  const definition = getArenaDefinition(arenaId);
-  return resolve(REPO_ROOT, definition.default_config_path);
 }
 
 export function validateSupportedBaselines(
@@ -137,3 +115,32 @@ async function statIfExists(path: string) {
     throw err;
   }
 }
+
+export {
+  loadArenaContext,
+  resolveScoringWeightsPath,
+  TournamentConfigSchema,
+  TournamentEditConfigSchema,
+  type ArenaContext,
+  type TournamentConfig,
+} from "./loader.js";
+export {
+  executeRound,
+  deriveRoundMeta,
+  type RunResult,
+} from "./runtime/runner.js";
+export {
+  closeLogSinks,
+  writeRoundMeta,
+  writeRoundResults,
+  writeSummary,
+  writeWindowLogs,
+  type RoundMeta,
+} from "./runtime/logger.js";
+export { HarnessClient, type HarnessProgram } from "./runtime/harness.js";
+export {
+  buildPolicies,
+  prepareProgramsAndInvalidAgents,
+  shouldBuildOnchain,
+  type OnchainWorkspaceAgent,
+} from "./runtime/onchain.js";

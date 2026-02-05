@@ -1,7 +1,7 @@
 import { $, JSONL } from "bun";
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { executeRound } from "../runner.js";
-import { getBuiltinAgent, type Agent } from "../agents.js";
+import { executeRound } from "../index.js";
+import { getBuiltinAgent, type Agent } from "@solclash/agents";
 import {
   ActionType,
   type ArenaConfigResolved,

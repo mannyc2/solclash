@@ -91,3 +91,11 @@ export function validateAgentManifestsForArena(
     ids.add(manifest.id);
   }
 }
+
+export {
+  resolveBaselines,
+  resolveAllAgents,
+  getBuiltinAgent,
+  type Agent,
+  type ResolvedAgents,
+} from "./resolve.js";

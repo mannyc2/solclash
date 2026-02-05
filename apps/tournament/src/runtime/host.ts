@@ -1,30 +1,15 @@
-import { spawn } from "bun";
+/** ContainerRuntime backed by temp directories on the host. Used in tests. */
 import { mkdir, rm, mkdtemp, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import type {
-  ContainerHandle,
-  ContainerRuntime,
-  CreateContainerOptions,
-  ExecOptions,
-  ExecResult,
+import {
+  runCommand,
+  type ContainerHandle,
+  type ContainerRuntime,
+  type CreateContainerOptions,
+  type ExecOptions,
+  type ExecResult,
 } from "./container.js";
-
-async function runCommand(
-  command: string[],
-  options?: { cwd?: string; env?: Record<string, string> },
-): Promise<ExecResult> {
-  const proc = spawn(command, {
-    cwd: options?.cwd,
-    env: options?.env,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const stdout = await new Response(proc.stdout).text();
-  const stderr = await new Response(proc.stderr).text();
-  const code = await proc.exited;
-  return { code, stdout, stderr };
-}
 
 function mergeEnv(
   overrides?: Record<string, string>,
