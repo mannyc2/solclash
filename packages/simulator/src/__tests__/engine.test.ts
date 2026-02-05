@@ -1,8 +1,32 @@
 import { describe, test, expect } from "bun:test";
 import { runWindow } from "../engine.js";
-import { BUY_AND_HOLD, FLAT } from "../baselines.js";
 import { ActionType } from "../types.js";
-import type { ArenaConfig, OhlcvBar } from "../types.js";
+import type { ArenaConfig, OhlcvBar, PolicyFn } from "../types.js";
+
+// Inline baseline policies for testing (actual baselines live in arenas package)
+const FLAT: PolicyFn = () => ({
+  version: 1,
+  action_type: ActionType.HOLD,
+  order_qty: 0,
+  err_code: 0,
+});
+
+const BUY_AND_HOLD: PolicyFn = (input) => {
+  if (input.account.position_qty === 0) {
+    return {
+      version: 1,
+      action_type: ActionType.BUY,
+      order_qty: 1,
+      err_code: 0,
+    };
+  }
+  return {
+    version: 1,
+    action_type: ActionType.HOLD,
+    order_qty: 0,
+    err_code: 0,
+  };
+};
 
 function makeBars(prices: number[]): OhlcvBar[] {
   return prices.map((p, i) => ({

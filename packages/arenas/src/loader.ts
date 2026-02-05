@@ -10,6 +10,16 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import { getArenaDefinition, validateSupportedBaselines } from "./index.js";
 
+export const AGENT_PROVIDERS = [
+  "anthropic",
+  "openai",
+  "google",
+  "glm",
+  "kimi",
+] as const;
+
+export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
+
 const NetworkPolicySchema = z
   .object({
     enabled: z.boolean().default(false),
@@ -34,10 +44,19 @@ export const TournamentConfigSchema = z.object({
 
 export type TournamentConfig = z.infer<typeof TournamentConfigSchema>;
 
+export const PlayerSchema = z.object({
+  name: z.string().min(1),
+  provider: z.enum(AGENT_PROVIDERS),
+  model: z.string().min(1),
+});
+
+export type Player = z.infer<typeof PlayerSchema>;
+
 export interface ArenaContext {
   config: ArenaConfigResolved;
   bars: OhlcvBar[];
   tournament?: TournamentConfig;
+  players: Player[];
 }
 
 export function resolveScoringWeightsPath(
@@ -171,5 +190,36 @@ export async function loadArenaContext(opts: {
     tournament = tournamentResult.data;
   }
 
-  return { config: finalConfig, bars, tournament };
+  // Parse optional players array from raw config
+  let players: Player[] = [];
+  if ("players" in raw && Array.isArray(raw.players)) {
+    const playersResult = z.array(PlayerSchema).safeParse(raw.players);
+    if (!playersResult.success) {
+      throw new Error(
+        `Invalid players: ${playersResult.error.issues.map((i) => `${i.path.join(".") || "<root>"}: ${i.message}`).join("; ")}`,
+      );
+    }
+    players = playersResult.data;
+
+    // Check for duplicate player names
+    const names = new Set<string>();
+    for (const player of players) {
+      if (names.has(player.name)) {
+        throw new Error(`Duplicate player name: ${player.name}`);
+      }
+      names.add(player.name);
+    }
+
+    // Check for collision with baseline names
+    const baselineNames = new Set(finalConfig.baseline_bots_enabled);
+    for (const player of players) {
+      if (baselineNames.has(player.name)) {
+        throw new Error(
+          `Player name collides with builtin baseline: ${player.name}`,
+        );
+      }
+    }
+  }
+
+  return { config: finalConfig, bars, tournament, players };
 }

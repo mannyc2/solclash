@@ -1,5 +1,12 @@
 {
   "arena_id": "btc-perp-v1",
+  "players": [
+    {
+      "name": "claude",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-20250514"
+    }
+  ],
   "symbol": "BTC-PERP",
   "base_mint": "BTC",
   "quote_mint": "USDC",

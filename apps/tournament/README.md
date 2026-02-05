@@ -100,6 +100,9 @@ If you want competition-only, add `--no-edit`.
     │   ├── summary.json       # Per-window metrics
     │   ├── round_results.json # Per-agent round scores
     │   ├── round_meta.json    # Winner, scores, invalid agents, timestamps
+    │   ├── snapshot_index.json # Code snapshot index for UI
+    │   ├── workspaces/
+    │   │   └── <AGENT_ID>/     # Pre-competition code snapshot
     │   └── <AGENT_ID>/
     │       └── policy_log.jsonl
     ├── 2/
@@ -109,6 +112,8 @@ If you want competition-only, add `--no-edit`.
 ```
 
 `tournament.json` contains the full config, agent IDs, edit config, and an array of round results (each with `round_num` and `meta` including `winner`, `scores`, `invalid_agents`, and timestamps).
+
+`snapshot_index.json` maps each agent to its pre-competition workspace snapshot (if any) and score for the round.
 
 ## Edit Phase (Containerized)
 

@@ -1,5 +1,5 @@
 import { $ } from "bun";
-import type { Agent } from "@solclash/agents";
+import type { Agent } from "../index.js";
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { ValidatedWorkspace } from "../index.js";

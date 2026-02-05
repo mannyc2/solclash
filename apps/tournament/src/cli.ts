@@ -5,6 +5,8 @@
  * Runs a multi-round tournament: load config → resolve agents → copy
  * workspaces → run the edit→compete→score loop via runTournament().
  *
+ * Players are defined in the config file's `players` array.
+ *
  * Flags:
  *   --local      Skip Docker — compile and run agents directly on the host.
  *                Also used by competition/container.ts when re-invoking
@@ -13,8 +15,11 @@
  */
 import { cp, mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { resolveAllAgents } from "@solclash/agents";
-import { loadArenaContext } from "@solclash/arenas";
+import {
+  getArenaDefinition,
+  loadArenaContext,
+  resolveBaselines,
+} from "@solclash/arenas";
 import { parseArgs } from "node:util";
 import { buildEditConfig } from "./edit/config.js";
 import { DockerRuntime } from "./runtime/docker.js";
@@ -25,7 +30,7 @@ const DEFAULT_HARNESS_PATH =
   "./apps/arena-harness/target/release/solclash-harness";
 
 function getUsageText(): string {
-  return "Usage: solclash-tournament --config <path> [--data <path>] [--rounds <n>] [--output <dir>] [--agent <manifest_path>...] [--harness <path>] [--no-edit] [--local]";
+  return "Usage: solclash-tournament --config <path> [--data <path>] [--rounds <n>] [--output <dir>] [--harness <path>] [--no-edit] [--local]";
 }
 
 function parseRounds(roundsRaw: string | undefined, fallback: number): number {
@@ -45,7 +50,6 @@ async function main(): Promise<void> {
       data: { type: "string", short: "d" },
       output: { type: "string", short: "o", default: "./logs" },
       rounds: { type: "string", short: "r" },
-      agent: { type: "string", short: "a", multiple: true, default: [] },
       harness: { type: "string" },
       local: { type: "boolean", default: false },
       "no-edit": { type: "boolean", default: false },
@@ -58,7 +62,6 @@ async function main(): Promise<void> {
     data?: string;
     output: string;
     rounds?: string;
-    agent: string[];
     harness?: string;
     local: boolean;
     "no-edit": boolean;
@@ -72,6 +75,7 @@ async function main(): Promise<void> {
     config: finalConfig,
     bars,
     tournament,
+    players,
   } = await loadArenaContext({
     configPath: values.config,
     dataPath: values.data,
@@ -79,15 +83,10 @@ async function main(): Promise<void> {
   console.log(`Loaded ${bars.length} bars`);
 
   const rounds = parseRounds(values.rounds, tournament?.rounds ?? 1);
-  const {
-    manifests: agentManifests,
-    builtinAgents: agents,
-    validatedWorkspaces,
-  } = await resolveAllAgents({
-    manifestPaths: values.agent,
-    arenaId: finalConfig.arena_id,
-    baselineNames: finalConfig.baseline_bots_enabled,
-  });
+  const { agents } = resolveBaselines(
+    finalConfig.arena_id,
+    finalConfig.baseline_bots_enabled,
+  );
 
   const outputRoot = resolve(values.output);
   const workspacesRoot = join(outputRoot, "workspaces");
@@ -98,20 +97,20 @@ async function main(): Promise<void> {
     agentSources.push({ id: name, provider: "builtin" });
   }
 
+  // Copy arena starter to each player's working directory
+  const definition = getArenaDefinition(finalConfig.arena_id);
+  const starterPath = resolve(definition.starter_path);
+
   const injectTargets: string[] = [];
-  for (const manifest of agentManifests) {
-    const validated = validatedWorkspaces.get(manifest.id);
-    if (!validated) {
-      throw new Error(`Missing validated workspace for agent '${manifest.id}'`);
-    }
-    const workingCopy = join(workspacesRoot, manifest.id);
+  for (const player of players) {
+    const workingCopy = join(workspacesRoot, player.name);
     await rm(workingCopy, { recursive: true, force: true });
-    await cp(validated.root_dir, workingCopy, { recursive: true });
+    await cp(starterPath, workingCopy, { recursive: true });
     agentSources.push({
-      id: manifest.id,
-      provider: manifest.provider,
+      id: player.name,
+      provider: player.provider,
       workspace: workingCopy,
-      model: manifest.model,
+      model: player.model,
     });
     injectTargets.push(workingCopy);
   }
@@ -139,7 +138,6 @@ async function main(): Promise<void> {
     edit: editConfig,
     runtime,
     harnessPath: values.harness ?? DEFAULT_HARNESS_PATH,
-    validatedWorkspaces,
   });
 
   console.log(

@@ -1,7 +1,6 @@
 import { $ } from "bun";
 import { describe, test, expect } from "bun:test";
-import { executeRound } from "../index.js";
-import type { Agent } from "@solclash/agents";
+import { executeRound, type Agent } from "../index.js";
 import { HarnessClient } from "../runtime/harness.js";
 import type {
   ArenaConfigResolved,

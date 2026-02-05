@@ -1,7 +1,6 @@
 import { $, JSONL } from "bun";
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { executeRound } from "../index.js";
-import { getBuiltinAgent, type Agent } from "@solclash/agents";
+import { executeRound, getBuiltinAgent, type Agent } from "../index.js";
 import {
   ActionType,
   type ArenaConfigResolved,
@@ -93,8 +92,11 @@ describe("arena e2e", () => {
         .default;
       const agents: Agent[] = [
         { id: "MOMENTUM", policy: momentumPolicy },
-        requireValue(getBuiltinAgent("BUY_AND_HOLD"), "BUY_AND_HOLD agent"),
-        requireValue(getBuiltinAgent("FLAT"), "FLAT agent"),
+        requireValue(
+          getBuiltinAgent("btc-perp-v1", "BUY_AND_HOLD"),
+          "BUY_AND_HOLD agent",
+        ),
+        requireValue(getBuiltinAgent("btc-perp-v1", "FLAT"), "FLAT agent"),
       ];
 
       const result = await executeRound(config, bars, agents, tmpDir2);
@@ -151,8 +153,11 @@ describe("arena e2e", () => {
   maybeTest("runs baselines on fixture data and produces logs", async () => {
     const bars = makeFixtureBars(20);
     const agents: Agent[] = [
-      requireValue(getBuiltinAgent("BUY_AND_HOLD"), "BUY_AND_HOLD agent"),
-      requireValue(getBuiltinAgent("FLAT"), "FLAT agent"),
+      requireValue(
+        getBuiltinAgent("btc-perp-v1", "BUY_AND_HOLD"),
+        "BUY_AND_HOLD agent",
+      ),
+      requireValue(getBuiltinAgent("btc-perp-v1", "FLAT"), "FLAT agent"),
     ];
 
     const result = await executeRound(config, bars, agents, tmpDir);

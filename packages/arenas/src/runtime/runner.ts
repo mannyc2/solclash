@@ -8,6 +8,7 @@ import {
   type WindowMetrics,
   type WindowSummary,
 } from "@solclash/simulator";
+import type { Agent } from "../index.js";
 import {
   buildWindows,
   collectInvalidBars,
@@ -15,7 +16,6 @@ import {
   selectWindows,
   sliceBars,
 } from "@solclash/data";
-import type { Agent } from "@solclash/agents";
 import {
   closeLogSinks,
   writeRoundResults,

@@ -1,5 +1,7 @@
 import { stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import type { PolicyFn } from "@solclash/simulator";
+import { BASELINES as BTC_PERP_BASELINES } from "../arenas/btc-perp-v1/baselines.js";
 
 export interface ArenaWorkspaceRequirements {
   required_directories: string[];
@@ -12,7 +14,7 @@ export interface ArenaDefinition {
   build_command: string[];
   artifact_path: string;
   workspace_requirements: ArenaWorkspaceRequirements;
-  supported_baselines: string[];
+  baselines: Record<string, PolicyFn>;
   default_config_path: string;
 }
 
@@ -20,6 +22,11 @@ export interface ValidatedWorkspace {
   root_dir: string;
   program_dir: string;
   artifact_path: string;
+}
+
+export interface Agent {
+  id: string;
+  policy: PolicyFn;
 }
 
 const ARENA_DEFINITIONS: Record<string, ArenaDefinition> = {
@@ -32,7 +39,7 @@ const ARENA_DEFINITIONS: Record<string, ArenaDefinition> = {
       required_directories: ["program", "program/src"],
       required_files: ["program/Cargo.toml"],
     },
-    supported_baselines: ["BUY_AND_HOLD", "FLAT"],
+    baselines: BTC_PERP_BASELINES,
     default_config_path:
       "packages/arenas/arenas/btc-perp-v1/default-config.json",
   },
@@ -51,15 +58,43 @@ export function validateSupportedBaselines(
   enabledBaselines: string[],
 ): void {
   const definition = getArenaDefinition(arenaId);
-  const allowed = new Set(definition.supported_baselines);
+  const allowed = new Set(Object.keys(definition.baselines));
 
   for (const baseline of enabledBaselines) {
     if (!allowed.has(baseline)) {
       throw new Error(
-        `Unsupported baseline for arena ${arenaId}: ${baseline}. Supported baselines: ${definition.supported_baselines.join(", ")}`,
+        `Unsupported baseline for arena ${arenaId}: ${baseline}. Supported baselines: ${[...allowed].join(", ")}`,
       );
     }
   }
+}
+
+export function getBuiltinAgent(arenaId: string, name: string): Agent | null {
+  const definition = getArenaDefinition(arenaId);
+  const policy = definition.baselines[name];
+  return policy ? { id: name, policy } : null;
+}
+
+export function resolveBaselines(
+  arenaId: string,
+  baselineNames: string[],
+): {
+  agents: Agent[];
+  invalidAgents: Record<string, string>;
+} {
+  const agents: Agent[] = [];
+  const invalidAgents: Record<string, string> = {};
+
+  for (const name of baselineNames) {
+    const agent = getBuiltinAgent(arenaId, name);
+    if (!agent) {
+      invalidAgents[name] = "unknown_baseline";
+      continue;
+    }
+    agents.push(agent);
+  }
+
+  return { agents, invalidAgents };
 }
 
 export async function validateWorkspaceForArena(
@@ -117,11 +152,15 @@ async function statIfExists(path: string) {
 }
 
 export {
+  AGENT_PROVIDERS,
   loadArenaContext,
   resolveScoringWeightsPath,
+  PlayerSchema,
   TournamentConfigSchema,
   TournamentEditConfigSchema,
+  type AgentProvider,
   type ArenaContext,
+  type Player,
   type TournamentConfig,
 } from "./loader.js";
 export {

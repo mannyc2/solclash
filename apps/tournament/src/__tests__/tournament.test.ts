@@ -3,7 +3,7 @@ import { describe, test, expect, afterAll } from "bun:test";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ArenaConfigResolved, OhlcvBar } from "@solclash/simulator";
-import { getBuiltinAgent, type Agent } from "@solclash/agents";
+import { getBuiltinAgent, type Agent } from "@solclash/arenas";
 import { runTournament, type AgentSource } from "../runner.js";
 import { HostRuntime } from "../runtime/host.js";
 import { buildEditConfig } from "../edit/config.js";
@@ -95,8 +95,11 @@ describe("tournament e2e", () => {
 
     const agents: Agent[] = [
       { id: "MOMENTUM", policy: momentumPolicy },
-      requireValue(getBuiltinAgent("BUY_AND_HOLD"), "BUY_AND_HOLD agent"),
-      requireValue(getBuiltinAgent("FLAT"), "FLAT agent"),
+      requireValue(
+        getBuiltinAgent("btc-perp-v1", "BUY_AND_HOLD"),
+        "BUY_AND_HOLD agent",
+      ),
+      requireValue(getBuiltinAgent("btc-perp-v1", "FLAT"), "FLAT agent"),
     ];
 
     const tmpDir = await makeTmpDir();
@@ -186,6 +189,24 @@ describe("tournament e2e", () => {
       ).toBe(true);
     }
 
+    // ── snapshot_index.json exists and matches scores ──
+    for (let round = 1; round <= 2; round++) {
+      const snapshotIndex = await Bun.file(
+        join(tmpDir, `rounds/${round}/snapshot_index.json`),
+      ).json();
+      expect(snapshotIndex.round).toBe(round);
+      expect(snapshotIndex.snapshots_root).toBe(`rounds/${round}/workspaces`);
+      const entries = snapshotIndex.agents;
+      expect(entries).toHaveLength(3);
+      const memRound = requireValue(result.rounds[round - 1], `round ${round}`);
+      const memMeta = requireValue(memRound.meta, `round ${round} meta`);
+      for (const entry of entries) {
+        expect(entry.origin).toBe("policy");
+        expect(entry.snapshot_path).toBeNull();
+        expect(entry.score).toBe(memMeta.scores[entry.agent_id]);
+      }
+    }
+
     // ── Per-agent log dirs exist (MOMENTUM trades, so it must have logs) ──
     expect(
       await Bun.file(
@@ -225,7 +246,10 @@ describe("tournament e2e", () => {
 
     const agents: Agent[] = [
       { id: "MOMENTUM", policy: momentumPolicy },
-      requireValue(getBuiltinAgent("BUY_AND_HOLD"), "BUY_AND_HOLD agent"),
+      requireValue(
+        getBuiltinAgent("btc-perp-v1", "BUY_AND_HOLD"),
+        "BUY_AND_HOLD agent",
+      ),
     ];
 
     const tmpDir = await makeTmpDir();
@@ -247,6 +271,11 @@ describe("tournament e2e", () => {
 
     // tournament.json written
     expect(await Bun.file(join(tmpDir, "tournament.json")).exists()).toBe(true);
+
+    // snapshot index exists
+    expect(
+      await Bun.file(join(tmpDir, "rounds/1/snapshot_index.json")).exists(),
+    ).toBe(true);
 
     // No logs/ directory was created in the output dir
     const logsDir = join(tmpDir, "logs");
@@ -331,7 +360,7 @@ describe("tournament e2e", () => {
     });
 
     const agents: Agent[] = [
-      requireValue(getBuiltinAgent("FLAT"), "FLAT agent"),
+      requireValue(getBuiltinAgent("btc-perp-v1", "FLAT"), "FLAT agent"),
     ];
     const agentSources: AgentSource[] = [
       { id: "DUMMY", provider: "anthropic", workspace },
@@ -351,6 +380,22 @@ describe("tournament e2e", () => {
       runtime,
       competitionMode: "local",
     });
+
+    const snapshotDir = join(
+      outputDir,
+      "rounds/1/workspaces/DUMMY/edit_marker.txt",
+    );
+    expect(await Bun.file(snapshotDir).exists()).toBe(true);
+
+    const snapshotIndex = await Bun.file(
+      join(outputDir, "rounds/1/snapshot_index.json"),
+    ).json();
+    const dummyEntry = snapshotIndex.agents.find(
+      (entry: { agent_id: string }) => entry.agent_id === "DUMMY",
+    );
+    expect(dummyEntry).toBeDefined();
+    expect(dummyEntry.origin).toBe("workspace");
+    expect(dummyEntry.snapshot_path).toBe("rounds/1/workspaces/DUMMY");
 
     const seen = (
       await Bun.file(join(workspace, "log_seen.txt")).text()
