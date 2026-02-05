@@ -43,11 +43,9 @@ Create agent manifests:
 }
 ```
 
-Run one round:
+Run one round (uses Claude Code subscription by default, or set `ANTHROPIC_API_KEY` to override):
 
 ```sh
-export ANTHROPIC_API_KEY=your_key_here
-
 bun run tournament -- \
   --config ./arena-config.json \
   --data ./tmp/bars.json \
@@ -119,15 +117,29 @@ If you want competition-only, add `--no-edit`.
 
 The edit phase runs each non-builtin agent in a dedicated container (`solclash-agent`) and copies the workspace back only on success. The prompt is deterministic per tournament and comes from the built-in `default` prompt or an explicit file path.
 
-API keys are forwarded into each agent container based on the agent manifest `provider`.
+A single Docker image (`solclash-agent`) contains all provider CLIs. The edit-runner dispatches by `provider`:
 
-| Provider    | API Key Env (required) | Base URL Env (optional) |
-| ----------- | ---------------------- | ----------------------- |
-| `anthropic` | `ANTHROPIC_API_KEY`    | `ANTHROPIC_BASE_URL`    |
-| `openai`    | `OPENAI_API_KEY`       | `OPENAI_BASE_URL`       |
-| `google`    | `GOOGLE_API_KEY`       | `GOOGLE_BASE_URL`       |
-| `glm`       | `GLM_API_KEY`          | `GLM_BASE_URL`          |
-| `kimi`      | `KIMI_API_KEY`         | `KIMI_BASE_URL`         |
+| Provider    | Runner               | Auth                                                   |
+| ----------- | -------------------- | ------------------------------------------------------ |
+| `anthropic` | Claude SDK `query()` | Claude Code subscription (auto) or `ANTHROPIC_API_KEY` |
+| `google`    | `gemini -p` CLI      | `~/.gemini/` OAuth mount (read-only)                   |
+| `openai`    | `codex exec` CLI     | `~/.codex/` OAuth mount (read-only)                    |
+| `kimi`      | Claude SDK `query()` | `KIMI_API_KEY` + `KIMI_BASE_URL` env vars              |
+| `glm`       | Claude SDK `query()` | `GLM_API_KEY` + `GLM_BASE_URL` env vars                |
+
+### Authentication
+
+**anthropic** — Uses your Claude Code subscription automatically. In local mode the SDK reads Keychain directly. In Docker mode the orchestrator extracts the OAuth token from macOS Keychain and passes it as `CLAUDE_CODE_OAUTH_TOKEN`. No `ANTHROPIC_API_KEY` needed.
+
+**google** — Run `gemini` once locally and complete the "Login with Google" OAuth flow. Credentials are cached in `~/.gemini/` and mounted read-only into the container automatically.
+
+**openai** — Run `codex` once locally and complete the "Sign in with ChatGPT" flow. Credentials are cached in `~/.codex/` and mounted read-only into the container automatically.
+
+**kimi** — Set `KIMI_API_KEY` and `KIMI_BASE_URL` in your environment. These are mapped to `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` inside the container so the Claude SDK routes to the Kimi endpoint.
+
+**glm** — Set `GLM_API_KEY` and `GLM_BASE_URL` in your environment. Same mapping as kimi.
+
+### Multi-Provider Example
 
 Provider-vs-provider runs are done by passing multiple manifests with different `provider` values:
 
@@ -140,7 +152,17 @@ bun run tournament -- \
   --agent ./agents/openai/solclash-agent.json
 ```
 
-The system validates required environment variables before starting the edit phase.
+The system validates required environment variables before starting the edit phase. OAuth-based providers (`google`, `openai`) skip API key validation since they authenticate via mounted credential directories.
+
+### Prerequisites (Local Mode)
+
+For `--local` mode with non-Anthropic providers, install the CLI tools globally:
+
+```sh
+npm install -g @google/gemini-cli @openai/codex
+```
+
+In Docker mode these are pre-installed in the `solclash-agent` image.
 
 ## Local Mode
 

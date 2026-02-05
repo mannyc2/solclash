@@ -41,9 +41,26 @@ export async function runCompetitionInContainer(
   const tempDir = await mkdtemp(join(tmpdir(), "solclash-competition-"));
   const configPath = join(tempDir, "arena-config.json");
   const barsPath = join(tempDir, "bars.json");
+  const firstBarTs = bars[0]?.bar_start_ts_ms ?? "none";
+  const lastBarTs = bars[bars.length - 1]?.bar_end_ts_ms ?? "none";
 
   await writeFile(configPath, JSON.stringify(config, null, 2));
+  console.log(
+    "FILE_WRITE",
+    "write",
+    configPath,
+    `arena_id=${config.arena_id}`,
+    `windows=${config.number_of_windows_per_round}`,
+  );
   await writeFile(barsPath, JSON.stringify(bars, null, 2));
+  console.log(
+    "FILE_WRITE",
+    "write",
+    barsPath,
+    `bars=${bars.length}`,
+    `first_bar_ts=${firstBarTs}`,
+    `last_bar_ts=${lastBarTs}`,
+  );
 
   const container = await runtime.create({
     image,
@@ -103,6 +120,13 @@ export async function runCompetitionInContainer(
           null,
           2,
         ),
+      );
+      console.log(
+        "FILE_WRITE",
+        "write",
+        manifestHostPath,
+        `agent=${agent.id}`,
+        `provider=${agent.provider}`,
       );
       await runtime.copyTo(container, manifestHostPath, manifestPath);
       workspaceAgentManifests.push(manifestPath);

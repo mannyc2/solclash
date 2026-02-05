@@ -8,7 +8,6 @@
     "solclash-tournament": "src/cli.ts"
   },
   "dependencies": {
-    "@solclash/agents": "workspace:*",
     "@solclash/arenas": "workspace:*",
     "@solclash/data": "workspace:*",
     "@solclash/simulator": "workspace:*",

@@ -31,6 +31,7 @@ export interface EditSessionInput {
   settings_sources?: SettingSource[];
   timeout_ms?: number;
   model?: string;
+  provider?: string;
 }
 
 export type EditSessionStatus = "success" | "timeout" | "failure";

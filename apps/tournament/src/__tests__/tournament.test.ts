@@ -34,6 +34,22 @@ function requireValue<T>(value: T | null | undefined, label: string): T {
   return value;
 }
 
+async function captureConsoleLogs<T>(
+  fn: () => Promise<T>,
+): Promise<{ result: T; lines: string[] }> {
+  const originalLog = console.log;
+  const lines: string[] = [];
+  console.log = (...args: unknown[]) => {
+    lines.push(args.map((arg) => String(arg)).join(" "));
+  };
+  try {
+    const result = await fn();
+    return { result, lines };
+  } finally {
+    console.log = originalLog;
+  }
+}
+
 const config: ArenaConfigResolved = {
   arena_id: "tournament-e2e-test",
   symbol: "BTC-PERP",
@@ -106,14 +122,16 @@ describe("tournament e2e", () => {
     const agentDir = await makeTmpDir();
     const agentDir2 = await makeTmpDir();
 
-    const result = await runTournament({
-      config,
-      bars,
-      agents,
-      rounds: 2,
-      outputDir: tmpDir,
-      injectTargets: [agentDir, agentDir2],
-    });
+    const { result, lines } = await captureConsoleLogs(() =>
+      runTournament({
+        config,
+        bars,
+        agents,
+        rounds: 2,
+        outputDir: tmpDir,
+        injectTargets: [agentDir, agentDir2],
+      }),
+    );
 
     // Assert tournament structure
     expect(result.rounds).toHaveLength(2);
@@ -236,6 +254,9 @@ describe("tournament e2e", () => {
         expect(injectedContent).toBe(srcContent);
       }
     }
+
+    // ── File write observability logs are emitted ──
+    expect(lines.some((line) => line.includes("FILE_WRITE write"))).toBe(true);
   });
 
   test("runs tournament without inject targets", async () => {
@@ -302,25 +323,27 @@ describe("tournament e2e", () => {
       concurrency: 2,
     });
 
-    const results = await runEditPhase({
-      round: 1,
-      agents: [
-        {
-          id: "AGENT_A",
-          provider: "anthropic",
-          workspace: workspaceA,
-        },
-        {
-          id: "AGENT_B",
-          provider: "anthropic",
-          workspace: workspaceB,
-        },
-      ],
-      config: editConfig,
-      prompt_ref: "default",
-      runtime,
-      logsRoot,
-    });
+    const { result: results, lines } = await captureConsoleLogs(() =>
+      runEditPhase({
+        round: 1,
+        agents: [
+          {
+            id: "AGENT_A",
+            provider: "anthropic",
+            workspace: workspaceA,
+          },
+          {
+            id: "AGENT_B",
+            provider: "anthropic",
+            workspace: workspaceB,
+          },
+        ],
+        config: editConfig,
+        prompt_ref: "default",
+        runtime,
+        logsRoot,
+      }),
+    );
 
     expect(results["AGENT_A"]?.status).toBe("success");
     expect(results["AGENT_B"]?.status).toBe("success");
@@ -344,6 +367,13 @@ describe("tournament e2e", () => {
     ).json();
     expect(metaA.prompt_sha256).toBe(promptA.sha256);
     expect(metaB.prompt_sha256).toBe(promptB.sha256);
+
+    expect(lines.some((line) => line.includes("FILE_WRITE copy_to"))).toBe(
+      true,
+    );
+    expect(lines.some((line) => line.includes("FILE_WRITE copy_from"))).toBe(
+      true,
+    );
   });
 
   test("log injection occurs before the next edit phase", async () => {

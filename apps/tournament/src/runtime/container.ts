@@ -27,6 +27,11 @@ export interface CreateContainerOptions {
   name?: string;
   workdir?: string;
   env?: Record<string, string>;
+  volumes?: Array<{
+    hostPath: string;
+    containerPath: string;
+    readOnly?: boolean;
+  }>;
 }
 
 export interface ExecOptions {

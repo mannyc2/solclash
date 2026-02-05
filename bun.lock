@@ -24,18 +24,8 @@
         "solclash-tournament": "src/cli.ts",
       },
       "dependencies": {
-        "@solclash/agents": "workspace:*",
         "@solclash/arenas": "workspace:*",
         "@solclash/data": "workspace:*",
-        "@solclash/simulator": "workspace:*",
-        "zod": "^3.24.0",
-      },
-    },
-    "packages/agents": {
-      "name": "@solclash/agents",
-      "version": "0.1.0",
-      "dependencies": {
-        "@solclash/arenas": "workspace:*",
         "@solclash/simulator": "workspace:*",
         "zod": "^3.24.0",
       },
@@ -44,7 +34,6 @@
       "name": "@solclash/arenas",
       "version": "0.1.0",
       "dependencies": {
-        "@solclash/agents": "workspace:*",
         "@solclash/data": "workspace:*",
         "@solclash/simulator": "workspace:*",
         "zod": "^3.24.0",
@@ -94,8 +83,6 @@
     "@humanwhocodes/module-importer": ["@humanwhocodes/module-importer@1.0.1", "", {}, "sha512-bxveV4V8v5Yb4ncFTT3rPSgZBOpCkjfK0y4oVVVJwIuDVBRMDXrPyXRL988i5ap9m9bnyEEjWfm5WkBmtffLfA=="],
 
     "@humanwhocodes/retry": ["@humanwhocodes/retry@0.4.3", "", {}, "sha512-bV0Tgo9K4hfPCek+aMAn81RppFKv2ySDQeMoSZuvTASywNTnVJCArCZE2FWqpvIatKu7VMRLWlR1EazvVhDyhQ=="],
-
-    "@solclash/agents": ["@solclash/agents@workspace:packages/agents"],
 
     "@solclash/arenas": ["@solclash/arenas@workspace:packages/arenas"],
 

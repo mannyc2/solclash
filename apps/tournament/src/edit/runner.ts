@@ -13,12 +13,36 @@
  */
 import { mkdir, mkdtemp, rm, writeFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { runCommand, type ContainerRuntime } from "../runtime/container.js";
 import type { AgentSource } from "../runner.js";
 import { getProviderEnvDefaults } from "../runner.js";
 import type { EditConfig, EditSessionOutput } from "./config.js";
 import { resolveEditPrompt } from "./prompt.js";
+
+/** Redact an env value for logging — show first 4 and last 4 chars. */
+function redact(value: string): string {
+  if (value.length <= 12) return "***";
+  return `${value.slice(0, 4)}...${value.slice(-4)}`;
+}
+
+/** Extract the Claude Code OAuth access token from macOS Keychain. */
+async function extractClaudeOAuthToken(): Promise<string | null> {
+  try {
+    const result = await runCommand([
+      "security",
+      "find-generic-password",
+      "-s",
+      "Claude Code-credentials",
+      "-w",
+    ]);
+    if (result.code !== 0) return null;
+    const creds = JSON.parse(result.stdout.trim());
+    return creds?.claudeAiOauth?.accessToken ?? null;
+  } catch {
+    return null;
+  }
+}
 
 interface EditPhaseOpts {
   round: number;
@@ -89,17 +113,89 @@ async function runEditSession(
       ? getProviderEnvDefaults(agent.provider)
       : getProviderEnvDefaults("anthropic");
   const env: Record<string, string> = {};
-  const apiKey = process.env[providerDefaults.api_key_env];
-  if (apiKey) env[providerDefaults.api_key_env] = apiKey;
-  const baseUrl = process.env[providerDefaults.base_url_env];
-  if (baseUrl) env[providerDefaults.base_url_env] = baseUrl;
+  if (agent.provider === "anthropic") {
+    // Anthropic uses OAuth — extract token from macOS Keychain and pass it
+    // as CLAUDE_CODE_OAUTH_TOKEN. This triggers the SDK's subscription auth
+    // path (different from ANTHROPIC_AUTH_TOKEN which bypasses it).
+    if (runtime.kind === "docker") {
+      const token = await extractClaudeOAuthToken();
+      if (token) env.CLAUDE_CODE_OAUTH_TOKEN = token;
+    }
+    const baseUrl = process.env[providerDefaults.base_url_env];
+    if (baseUrl) env[providerDefaults.base_url_env] = baseUrl;
+  } else {
+    const apiKey = process.env[providerDefaults.api_key_env];
+    if (apiKey) env[providerDefaults.api_key_env] = apiKey;
+    const baseUrl = process.env[providerDefaults.base_url_env];
+    if (baseUrl) env[providerDefaults.base_url_env] = baseUrl;
+    // Map provider credentials to ANTHROPIC_* so the Claude SDK inside the
+    // container routes to the correct provider proxy.
+    //   kimi: uses ANTHROPIC_API_KEY  (api.kimi.com/coding/)
+    //   glm:  uses ANTHROPIC_AUTH_TOKEN (api.z.ai/api/anthropic)
+    if (agent.provider === "kimi") {
+      const providerKey = process.env[providerDefaults.api_key_env];
+      const providerBaseUrl = process.env[providerDefaults.base_url_env];
+      if (providerKey) env.ANTHROPIC_API_KEY = providerKey;
+      if (providerBaseUrl) env.ANTHROPIC_BASE_URL = providerBaseUrl;
+      console.log(
+        `  ${agent.id}: mapping ${providerDefaults.api_key_env}${providerKey ? "(set)" : "(MISSING)"} → ANTHROPIC_API_KEY`,
+      );
+      console.log(
+        `  ${agent.id}: mapping ${providerDefaults.base_url_env}${providerBaseUrl ? `(${providerBaseUrl})` : "(MISSING)"} → ANTHROPIC_BASE_URL`,
+      );
+    } else if (agent.provider === "glm") {
+      const providerKey = process.env[providerDefaults.api_key_env];
+      const providerBaseUrl = process.env[providerDefaults.base_url_env];
+      if (providerKey) env.ANTHROPIC_AUTH_TOKEN = providerKey;
+      if (providerBaseUrl) env.ANTHROPIC_BASE_URL = providerBaseUrl;
+      console.log(
+        `  ${agent.id}: mapping ${providerDefaults.api_key_env}${providerKey ? "(set)" : "(MISSING)"} → ANTHROPIC_AUTH_TOKEN`,
+      );
+      console.log(
+        `  ${agent.id}: mapping ${providerDefaults.base_url_env}${providerBaseUrl ? `(${providerBaseUrl})` : "(MISSING)"} → ANTHROPIC_BASE_URL`,
+      );
+    }
+  }
+
   env.SOLCLASH_AGENT_ID = agent.id;
+
+  // Mount OAuth credential directories for providers that use browser-based auth.
+  const volumes: Array<{
+    hostPath: string;
+    containerPath: string;
+    readOnly?: boolean;
+  }> = [];
+  if (agent.provider === "google") {
+    volumes.push({
+      hostPath: join(homedir(), ".gemini"),
+      containerPath: "/root/.gemini",
+    });
+  } else if (agent.provider === "openai") {
+    volumes.push({
+      hostPath: join(homedir(), ".codex"),
+      containerPath: "/root/.codex",
+    });
+  }
+
+  // Log env and volumes for debugging.
+  const envSummary = Object.entries(env)
+    .filter(([k]) => k !== "SOLCLASH_AGENT_ID")
+    .map(([k, v]) => `${k}=${redact(v)}`)
+    .join(", ");
+  const volSummary = volumes
+    .map((v) => `${v.hostPath}→${v.containerPath}${v.readOnly ? " (ro)" : ""}`)
+    .join(", ");
+  console.log(
+    `  ${agent.id}: provider=${agent.provider} env=[${envSummary}] volumes=[${volSummary}]`,
+  );
 
   const container = await runtime.create({
     image: config.image,
     workdir: "/",
     env,
+    volumes,
   });
+  console.log(`  ${agent.id}: container=${container.id.slice(0, 12)}`);
 
   const logDirContainer = `/logs/edits/${round}/${agent.id}`;
   const inputContainer = `/tmp/edit-input-${agent.id}.json`;
@@ -130,12 +226,14 @@ async function runEditSession(
         logDirContainer,
       ]);
     }
+
     // Copy workspace contents into container.
     await runtime.copyTo(container, `${agent.workspace}/.`, workspaceContainer);
 
     const input = {
       round,
       agent_id: agent.id,
+      provider: agent.provider,
       workspace_path:
         runtime.kind === "host" ? hostWorkspace : workspaceContainer,
       system_prompt: prompt.content,
@@ -153,6 +251,15 @@ async function runEditSession(
 
     const inputHost = join(logDirHost, "edit_input.json");
     await writeFile(inputHost, JSON.stringify(input, null, 2));
+    console.log(
+      "FILE_WRITE",
+      "write",
+      inputHost,
+      `agent=${agent.id}`,
+      `round=${round}`,
+      `provider=${agent.provider}`,
+      `model=${input.model ?? "default"}`,
+    );
     await runtime.copyTo(container, inputHost, inputContainer);
 
     const runnerBinary = runtime.kind === "host" ? "bun" : "node";
@@ -168,6 +275,18 @@ async function runEditSession(
       ],
       { env },
     );
+
+    // Surface container stdout/stderr for debugging (edit-runner prints diagnostics).
+    if (execResult.stdout) {
+      console.log(
+        `  ${agent.id}: [container stdout]\n${execResult.stdout.trimEnd()}`,
+      );
+    }
+    if (execResult.stderr) {
+      console.log(
+        `  ${agent.id}: [container stderr]\n${execResult.stderr.trimEnd()}`,
+      );
+    }
 
     await runtime.copyFrom(container, `${logDirContainer}/.`, logDirHost);
 
@@ -220,9 +339,15 @@ async function runEditSession(
     prompt_sha256: prompt.sha256,
     prompt_path: prompt.path,
   };
-  await writeFile(
-    join(logDirHost, "edit_meta.json"),
-    JSON.stringify(hostMeta, null, 2),
+  const hostMetaPath = join(logDirHost, "edit_meta.json");
+  await writeFile(hostMetaPath, JSON.stringify(hostMeta, null, 2));
+  console.log(
+    "FILE_WRITE",
+    "write",
+    hostMetaPath,
+    `agent=${agent.id}`,
+    `status=${status}`,
+    `error=${error ?? "none"}`,
   );
 
   return {

@@ -24,6 +24,14 @@ export class DockerRuntime implements ContainerRuntime {
         args.push("-e", `${key}=${value}`);
       }
     }
+    if (options.volumes) {
+      for (const vol of options.volumes) {
+        const flag = vol.readOnly
+          ? `${vol.hostPath}:${vol.containerPath}:ro`
+          : `${vol.hostPath}:${vol.containerPath}`;
+        args.push("-v", flag);
+      }
+    }
     args.push(options.image, "sleep", "infinity");
 
     const createResult = await runCommand(args);
@@ -56,7 +64,17 @@ export class DockerRuntime implements ContainerRuntime {
         args.push("-e", `${key}=${value}`);
       }
     }
-    args.push(container.id, ...command);
+    // Wrap in sh -c so output also goes to PID 1's stdout/stderr,
+    // making it visible in Docker Desktop's log viewer.
+    const escaped = command
+      .map((c) => `'${c.replace(/'/g, "'\\''")}'`)
+      .join(" ");
+    args.push(
+      container.id,
+      "bash",
+      "-c",
+      `${escaped} > >(tee /proc/1/fd/1) 2> >(tee /proc/1/fd/2 >&2)`,
+    );
     return runCommand(args);
   }
 
@@ -76,6 +94,13 @@ export class DockerRuntime implements ContainerRuntime {
       console.error(result.stderr);
       throw new Error(`docker cp to failed: ${result.stderr}`);
     }
+    console.log(
+      "FILE_WRITE",
+      "copy_to",
+      srcPath,
+      `${container.id}:${destPath}`,
+      `container=${container.id.slice(0, 12)}`,
+    );
   }
 
   async copyFrom(
@@ -94,6 +119,13 @@ export class DockerRuntime implements ContainerRuntime {
       console.error(result.stderr);
       throw new Error(`docker cp from failed: ${result.stderr}`);
     }
+    console.log(
+      "FILE_WRITE",
+      "copy_from",
+      `${container.id}:${srcPath}`,
+      destPath,
+      `container=${container.id.slice(0, 12)}`,
+    );
   }
 
   async remove(container: ContainerHandle): Promise<void> {

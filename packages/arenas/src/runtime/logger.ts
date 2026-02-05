@@ -8,6 +8,18 @@ function toJsonl(entries: unknown[]): string {
   return entries.map((e) => JSON.stringify(e)).join("\n") + "\n";
 }
 
+function preview(value: unknown, max = 160): string {
+  let text: string;
+  try {
+    text = typeof value === "string" ? value : JSON.stringify(value);
+  } catch {
+    text = String(value);
+  }
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (compact.length <= max) return compact;
+  return `${compact.slice(0, max)}...`;
+}
+
 const LOG_HWM = 1024 * 1024; // 1MB buffer before auto-flush
 const sinks = new Map<string, FileSink>();
 
@@ -23,6 +35,13 @@ function appendJsonl(path: string, entries: unknown[]): void {
   if (entries.length === 0) return;
   const sink = getSink(path);
   void sink.write(toJsonl(entries));
+  console.log(
+    "FILE_WRITE",
+    "append",
+    path,
+    `entries=${entries.length}`,
+    `first=${preview(entries[0])}`,
+  );
 }
 
 export async function closeLogSinks(): Promise<void> {
@@ -60,9 +79,14 @@ export async function writeSummary(
   summaries: WindowSummary[],
 ): Promise<void> {
   await mkdir(outputDir, { recursive: true });
-  await Bun.write(
-    join(outputDir, "summary.json"),
-    JSON.stringify(summaries, null, 2),
+  const summaryPath = join(outputDir, "summary.json");
+  await Bun.write(summaryPath, JSON.stringify(summaries, null, 2));
+  console.log(
+    "FILE_WRITE",
+    "write",
+    summaryPath,
+    `windows=${summaries.length}`,
+    `first_window=${summaries[0]?.window_id ?? "none"}`,
   );
 }
 
@@ -71,9 +95,15 @@ export async function writeRoundResults(
   results: Record<string, RoundMetrics>,
 ): Promise<void> {
   await mkdir(outputDir, { recursive: true });
-  await Bun.write(
-    join(outputDir, "round_results.json"),
-    JSON.stringify(results, null, 2),
+  const resultsPath = join(outputDir, "round_results.json");
+  await Bun.write(resultsPath, JSON.stringify(results, null, 2));
+  const agentIds = Object.keys(results);
+  console.log(
+    "FILE_WRITE",
+    "write",
+    resultsPath,
+    `agents=${agentIds.length}`,
+    `sample=${preview(agentIds[0] ? results[agentIds[0]] : null)}`,
   );
 }
 
@@ -91,8 +121,14 @@ export async function writeRoundMeta(
 ): Promise<void> {
   // round_meta.json is the canonical artifact for winner, invalids, and timestamps.
   await mkdir(outputDir, { recursive: true });
-  await Bun.write(
-    join(outputDir, "round_meta.json"),
-    JSON.stringify(meta, null, 2),
+  const roundMetaPath = join(outputDir, "round_meta.json");
+  await Bun.write(roundMetaPath, JSON.stringify(meta, null, 2));
+  console.log(
+    "FILE_WRITE",
+    "write",
+    roundMetaPath,
+    `winner=${meta.winner ?? "none"}`,
+    `scores=${Object.keys(meta.scores).length}`,
+    `invalid=${Object.keys(meta.invalid_agents).length}`,
   );
 }

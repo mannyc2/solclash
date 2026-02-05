@@ -58,6 +58,13 @@ export class HostRuntime implements ContainerRuntime {
   ): Promise<void> {
     const dest = resolveContainerPath(container.id, destPath);
     await copyPath(srcPath, dest);
+    console.log(
+      "FILE_WRITE",
+      "copy_to",
+      srcPath,
+      dest,
+      `container=${basename(container.id)}`,
+    );
   }
 
   async copyFrom(
@@ -67,6 +74,13 @@ export class HostRuntime implements ContainerRuntime {
   ): Promise<void> {
     const src = resolveContainerPath(container.id, srcPath);
     await copyPath(src, destPath);
+    console.log(
+      "FILE_WRITE",
+      "copy_from",
+      src,
+      destPath,
+      `container=${basename(container.id)}`,
+    );
   }
 
   async remove(container: ContainerHandle): Promise<void> {

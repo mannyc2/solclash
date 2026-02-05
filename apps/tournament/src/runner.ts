@@ -156,6 +156,14 @@ export function validateAgentEnvironment(agents: AgentSource[]): void {
       continue; // Builtin agents don't need API keys
     }
 
+    if (
+      agent.provider === "google" ||
+      agent.provider === "openai" ||
+      agent.provider === "anthropic"
+    ) {
+      continue; // OAuth-based providers — no API key needed
+    }
+
     const providerDefaults = getProviderEnvDefaults(agent.provider);
     const missing: string[] = [];
 
@@ -376,8 +384,9 @@ export async function runTournament(
               invalid_reason: meta.invalid_agents[agent.id] ?? null,
             }));
 
+      const snapshotIndexPath = join(roundDir, "snapshot_index.json");
       await Bun.write(
-        join(roundDir, "snapshot_index.json"),
+        snapshotIndexPath,
         JSON.stringify(
           {
             round,
@@ -387,6 +396,13 @@ export async function runTournament(
           null,
           2,
         ),
+      );
+      console.log(
+        "FILE_WRITE",
+        "write",
+        snapshotIndexPath,
+        `round=${round}`,
+        `agents=${agentList.length}`,
       );
 
       if (injectTargets.length > 0) {
@@ -405,8 +421,9 @@ export async function runTournament(
       ? agentSources.map((agent) => agent.id)
       : agents.map((agent) => agent.id);
 
+  const tournamentPath = join(outputDir, "tournament.json");
   await Bun.write(
-    join(outputDir, "tournament.json"),
+    tournamentPath,
     JSON.stringify(
       {
         config,
@@ -422,6 +439,13 @@ export async function runTournament(
       null,
       2,
     ),
+  );
+  console.log(
+    "FILE_WRITE",
+    "write",
+    tournamentPath,
+    `rounds=${collected.length}`,
+    `agents=${agentIds.length}`,
   );
 
   return { rounds: collected };
